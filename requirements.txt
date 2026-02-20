@@ -1,0 +1,6 @@
+celery>=5.1.0
+Flask-Cors==5.0.0
+Flask-JWT-Extended==4.7.1
+Flask-RESTful==0.3.10
+Flask==3.1.2
+redis>=3.5.3
