@@ -25,11 +25,12 @@ def _run_window(window_uuid: str):
 
         # --- Pre-compute deterministic slot schedule ---
         total_ticks = int((w.window_to - w.window_from).total_seconds() // 10) + 1
-        n_errors    = round(w.error_status_generado * total_ticks)
-        n_omitted   = round(w.error_status_no_reportado * total_ticks)
-        if n_omitted < 1:
-            n_omitted = 1
-        n_ok        = total_ticks - n_errors - n_omitted
+        n_errors_raw = round(w.error_status_generado * total_ticks)
+        n_omitted    = max(1, round(w.error_status_no_reportado * total_ticks))  # siempre al menos 1 omitido
+
+        # Asegura que quede espacio para el omitido y no se generen negativos
+        n_errors = min(n_errors_raw, max(0, total_ticks - n_omitted))
+        n_ok     = max(0, total_ticks - n_errors - n_omitted)
 
         slots = ["error"] * n_errors + ["no_reported"] * n_omitted + ["ok"] * n_ok
         random.shuffle(slots)

@@ -185,7 +185,7 @@ ORDER BY window_from DESC;
 
 -- Auditoría de ticks por ventana
 SELECT window_uuid, service, status, sent_to_queue, timestamp
-FROM report_audits
+FROM report_audit
 WHERE window_uuid = '<UUID>'
 ORDER BY timestamp;
 
@@ -198,7 +198,7 @@ SELECT
     SUM(NOT sent_to_queue)                          AS omitidos,
     SUM(status LIKE 'error:%')                      AS errores,
     SUM(status = 'ok')                              AS ok
-FROM report_audits
+FROM report_audit
 GROUP BY window_uuid, service
 ORDER BY window_uuid;
 ```
@@ -231,9 +231,10 @@ SELECT
     service,
     COUNT(*)               AS ticks_auditados,
     SUM(sent_to_queue)     AS enviados_queue,
-    SUM(NOT sent_to_queue) AS omitidos_local
-FROM report_audits
-WHERE window_uuid = '<UUID>'
+    SUM(NOT sent_to_queue) AS omitidos_local,
+    SUM(status LIKE 'error:%') AS errores
+FROM report_audit
+
 GROUP BY window_uuid, service;
 ```
 
@@ -246,8 +247,7 @@ SELECT
     error_reports,
     missing_reports,
     status
-FROM monitoring_windows
-WHERE window_uuid = '<UUID>';
+FROM monitoring_windows;
 ```
 
 **Interpretación:**
