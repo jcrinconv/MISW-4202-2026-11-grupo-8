@@ -1,0 +1,140 @@
+services:
+
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  monitor-db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: monitor
+      MYSQL_USER: monitor
+      MYSQL_PASSWORD: monitor
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306"
+    volumes:
+      - monitor-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-umonitor", "-pmonitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  payments-db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: payments
+      MYSQL_USER: payments
+      MYSQL_PASSWORD: payments
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3308:3306"
+    volumes:
+      - payments-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-upayments", "-ppayments"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Services ──────────────────────────────────────────────────────────────
+
+  monitor:
+    build:
+      context: ./monitor
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      DATABASE_URL: mysql+pymysql://monitor:monitor@monitor-db/monitor
+      CREATE_SCHEMA_ON_STARTUP: "true"
+      HEARTBEAT_INTERVAL_SECONDS: "10"
+      WINDOW_DURATION_SECONDS: "300"
+    depends_on:
+      monitor-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',5001),2); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  monitor-queue:
+    build:
+      context: ./monitor-queue
+    restart: unless-stopped
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      MONITOR_URL: http://monitor:5001/api/monitor/heartbeats
+      STREAM_NAME: reports
+      CONSUMER_GROUP: monitor-queue-group
+      CONSUMER_NAME: worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      monitor:
+        condition: service_healthy
+
+  payments-a:
+    build:
+      context: ./payments
+    restart: unless-stopped
+    ports:
+      - "5002:5000"
+    environment:
+      DATABASE_URL: mysql+pymysql://payments:payments@payments-db/payments
+      SERVICE_NAME: payments-a
+      REDIS_REPORTS_URL: redis://redis:6379/0
+    depends_on:
+      payments-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payments-b:
+    build:
+      context: ./payments
+    restart: unless-stopped
+    ports:
+      - "5010:5000"
+    environment:
+      DATABASE_URL: mysql+pymysql://payments:payments@payments-db/payments
+      SERVICE_NAME: payments-b
+      REDIS_REPORTS_URL: redis://redis:6379/0
+    depends_on:
+      payments-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payments-c:
+    build:
+      context: ./payments
+    restart: unless-stopped
+    ports:
+      - "5020:5000"
+    environment:
+      DATABASE_URL: mysql+pymysql://payments:payments@payments-db/payments
+      SERVICE_NAME: payments-c
+      REDIS_REPORTS_URL: redis://redis:6379/0
+    depends_on:
+      payments-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  monitor-db-data:
+  payments-db-data:

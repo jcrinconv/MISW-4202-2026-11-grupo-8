@@ -1,5 +1,4 @@
 Flask
-celery
-redis
+flask-sqlalchemy
 SQLAlchemy
 pymysql
