@@ -17,9 +17,9 @@ def health():
 @bp.post("/report-windows")
 def create_window():
     service      = current_app.config["SERVICE_NAME"]
-    err_gen      = round(random.uniform(0.0, 0.05), 4)   # 0%..5%
-    err_norep    = round(random.uniform(0.0, 0.02), 4)   # 0%..2%
-    duration_sec = random.randint(60, 300)               # 1..5 min
+    err_gen      = round(random.uniform(0.0, 0.30), 4)   # 0%..30%
+    err_norep    = round(random.uniform(0.0, 0.15), 4)   # 0%..15%
+    duration_sec = random.randint(60, 180)               # 1..3 min
 
     # Snap to the next 10-second boundary, drop sub-second precision
     now = datetime.now(timezone.utc).replace(microsecond=0)

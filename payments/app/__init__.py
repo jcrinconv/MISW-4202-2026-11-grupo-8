@@ -15,6 +15,6 @@ def create_app():
     app.register_blueprint(bp)
 
     with app.app_context():
-        db.create_all()
+        db.metadata.create_all(bind=db.engine, checkfirst=True)
 
     return app
