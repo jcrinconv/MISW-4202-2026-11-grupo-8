@@ -8,7 +8,8 @@ from typing import Dict, List, Tuple
 
 from flask import Response, current_app, jsonify, request
 
-from monitor.modelos.modelos import (
+# from ..modelos.modelos import (
+from monitor.modelos import (
     HeartbeatEvent,
     HeartbeatStatus,
     MonitoringWindow,

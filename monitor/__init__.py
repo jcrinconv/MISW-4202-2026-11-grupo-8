@@ -4,7 +4,7 @@ from flask import Flask
 
 from config import config_by_name
 from monitor.modelos.modelos import db
-from monitor.monitor import monitor_bp
+from monitor import monitor_bp
 
 
 def create_app(config_name: str = "default") -> Flask:
