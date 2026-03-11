@@ -156,12 +156,6 @@ curl -X POST http://localhost:5020/report-windows
 
 ### Cerrar ventanas expiradas manualmente en el monitor
 
-Este endpoint es útil para cerrar ventanas expiradas en el monitor.
-En los casos en los que no se enviaron reportes, el monitor marcará la ventana como `ALERT`, e identificará cuántos reportes faltaron (*omitidos*).
-**IMPORTANTE**: Es necesario llamar manualmente a este endpoint una vez terminada la iteración de reportes.
-
-Los reportes omitidos se identifican tambien como errores en el monitor.
-
 ```bash
 curl -X POST http://localhost:5001/api/monitor/windows/sweep
 ```
