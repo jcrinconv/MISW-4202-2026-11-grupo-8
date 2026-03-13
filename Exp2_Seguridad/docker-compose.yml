@@ -1,0 +1,32 @@
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── Services ──────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./api-gateway
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+
+  auth-queue:
+    build:
+      context: ./auth-queue
+    restart: unless-stopped
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - MONITOR_URL=http://auth-anomaly:5001/api/auth-anomaly/auth-event
+    depends_on:
+      redis:
+        condition: service_healthy
