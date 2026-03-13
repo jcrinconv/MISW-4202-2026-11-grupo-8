@@ -23,8 +23,8 @@ def create_flask_app():
 
 def add_urls(app):
     api = Api(app)
-    api.add_resource(VistaLogin, "login")
-    api.add_resource(VistaReservas, "reservas")
+    api.add_resource(VistaLogin, "/login")
+    api.add_resource(VistaReservas, "/reservas")
 
 
 app = create_flask_app()
