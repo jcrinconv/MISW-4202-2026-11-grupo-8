@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 )
 
 type IUnauthLoginEvent interface {
@@ -58,6 +59,14 @@ func (e *UnauthLoginEvent) Proccess(ctx context.Context, simulationID string, us
 				EventType:      models.EventTypeLogin,
 				Status:         models.StatusSuccess,
 			})
+		}
+
+		if i < 9 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
 		}
 	}
 	return nil

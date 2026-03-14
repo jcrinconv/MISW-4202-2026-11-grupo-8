@@ -51,8 +51,8 @@ class Settings:
     # Rule tuning
     failure_threshold: int = int(os.getenv("AUTH_FAILURE_THRESHOLD", "3"))
     failure_window_seconds: int = int(os.getenv("AUTH_FAILURE_WINDOW_SECONDS", "60"))
-    multi_ip_threshold: int = int(os.getenv("AUTH_MULTI_IP_THRESHOLD", "3"))
-    multi_ip_window_seconds: int = int(os.getenv("AUTH_MULTI_IP_WINDOW_SECONDS", "90"))
+    multi_ip_threshold: int = int(os.getenv("AUTH_MULTI_IP_THRESHOLD", "2"))
+    multi_ip_window_seconds: int = int(os.getenv("AUTH_MULTI_IP_WINDOW_SECONDS", "60"))
     token_replay_ttl_seconds: int = int(os.getenv("AUTH_TOKEN_REPLAY_TTL_SECONDS", "180"))
     ratelimit_threshold: int = int(os.getenv("AUTH_RATELIMIT_THRESHOLD", "30"))
     ratelimit_window_seconds: int = int(os.getenv("AUTH_RATELIMIT_WINDOW_SECONDS", "60"))

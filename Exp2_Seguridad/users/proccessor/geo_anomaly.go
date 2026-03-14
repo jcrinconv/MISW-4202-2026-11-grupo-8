@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type IGeoAnomalyEvent interface {
@@ -39,7 +40,12 @@ var mapGeoRandom = map[string]models.Metadata{
 	"SUI":   {IP: "192.168.1.10", DeviceID: "10", Geo: "SUIZA"},
 }
 
+const maxGeoRequests = 5
+
 func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, user models.User) error {
+	ctxTimeout, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
 	var locations []models.Metadata
 	for _, item := range mapGeoRandom {
 		item.SimulationUUID = simulationID
@@ -47,6 +53,9 @@ func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, use
 	}
 	if len(locations) == 0 {
 		return nil
+	}
+	if len(locations) > maxGeoRequests {
+		locations = locations[:maxGeoRequests]
 	}
 
 	loginMeta := locations[0]
@@ -57,7 +66,7 @@ func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, use
 	})
 	loginDetailJSON := string(loginDetailBytes)
 
-	token, err := external_service.Login(ctx, user, loginMeta)
+	token, err := external_service.Login(ctxTimeout, user, loginMeta)
 	if err != nil {
 		eventType := models.EventTypeLogin
 		status := models.StatusError
@@ -88,7 +97,17 @@ func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, use
 		DetailJSON:     loginDetailJSON,
 	})
 
-	for _, item := range locations {
+	requestInterval := time.Minute / time.Duration(maxGeoRequests)
+
+	for i, item := range locations {
+		if i > 0 {
+			select {
+			case <-ctxTimeout.Done():
+				return ctxTimeout.Err()
+			case <-time.After(requestInterval):
+			}
+		}
+
 		detailBytes, _ := json.Marshal(map[string]string{
 			"geo":       item.Geo,
 			"ip":        item.IP,
@@ -107,7 +126,7 @@ func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, use
 			return err
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, gatewayURL+"/reservas", bytes.NewBuffer(bodyBytes))
+		req, err := http.NewRequestWithContext(ctxTimeout, http.MethodPost, gatewayURL+"/reservas", bytes.NewBuffer(bodyBytes))
 		if err != nil {
 			return err
 		}

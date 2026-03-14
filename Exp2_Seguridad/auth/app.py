@@ -161,7 +161,7 @@ def record_audit(user: str | None, activity: str, status: str, detail: str | Non
         session.close()
 
 
-def publish_event(user: str, activity: str, status: str, detail: str, metadata: dict | None = None, auth_token: str | None = None, auth_id: str | None = None, simulation_uuid: str | None = None) -> None:
+def publish_event(user: str, activity: str, status: str, detail: str, metadata: dict | None = None, auth_id: str | None = None, simulation_uuid: str | None = None) -> None:
     if redis_client is None:
         return
     payload = {
@@ -170,7 +170,6 @@ def publish_event(user: str, activity: str, status: str, detail: str, metadata: 
         "status": status,
         "detail": detail,
         "metadata": metadata or {},
-        "auth_token": auth_token,
         "auth_id": auth_id,
         "simulation_uuid": simulation_uuid,
         "occurred_at": now_utc().isoformat(),
@@ -222,6 +221,22 @@ def seed_users() -> None:
 
 
 def validate_token_value(token: str) -> tuple[dict | None, dict | None, tuple[dict, int] | None]:
+    unverified_user: str | None = None
+    try:
+        unverified_payload = jwt.decode(token, options={"verify_signature": False})
+        unverified_user = unverified_payload.get("user") if isinstance(unverified_payload, dict) else None
+    except Exception:
+        unverified_user = None
+
+    if unverified_user:
+        session = get_session()
+        try:
+            user = session.scalar(select(User).where(User.username == unverified_user))
+            if user is not None and user.is_blocked:
+                return None, None, ({"message": "Usuario bloqueado", "valid": False, "reason": "blocked_user"}, 403)
+        finally:
+            session.close()
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
@@ -281,18 +296,17 @@ class Login(Resource):
         session = get_session()
         try:
             user = session.scalar(select(User).where(User.username == username))
+            if user is not None and user.is_blocked:
+                record_audit(username, "login", "DENIED", user.blocked_reason or "Usuario bloqueado", metadata, simulation_uuid=simulation_uuid)
+                return {"message": "Usuario bloqueado", "reason": user.blocked_reason}, 403
             if user is None or not check_password_hash(user.password_hash, password):
                 record_audit(username, "login", "FAILED", "Credenciales inválidas", metadata, simulation_uuid=simulation_uuid)
                 publish_event(username, "login", "FAILED", "invalid_credentials", metadata, simulation_uuid=simulation_uuid)
                 return {"message": "Credenciales inválidas"}, 401
-            if user.is_blocked:
-                record_audit(username, "login", "DENIED", user.blocked_reason or "Usuario bloqueado", metadata, simulation_uuid=simulation_uuid)
-                publish_event(username, "login", "DENIED", user.blocked_reason or "blocked_user", metadata, simulation_uuid=simulation_uuid)
-                return {"message": "Usuario bloqueado", "reason": user.blocked_reason}, 403
 
             token, auth_id = issue_token(user)
             record_audit(username, "login", "SUCCESS", "Autenticación exitosa", metadata, auth_id, simulation_uuid=simulation_uuid)
-            publish_event(username, "login", "SUCCESS", "login_success", metadata, token, auth_id, simulation_uuid=simulation_uuid)
+            publish_event(username, "login", "SUCCESS", "login_success", metadata, auth_id=auth_id, simulation_uuid=simulation_uuid)
             return {
                 "message": "Inicio de sesión exitoso",
                 "token": token,
@@ -326,11 +340,19 @@ class Validate(Resource):
             except Exception:
                 event_user = "unknown"
             record_audit(event_user, "validate", error_body.get("reason", "FAILED").upper(), error_body.get("message"), metadata, simulation_uuid=simulation_uuid)
-            publish_event(event_user, "validate", error_body.get("reason", "FAILED").upper(), error_body.get("message", "validate_error"), metadata, token, simulation_uuid=simulation_uuid)
+            if error_body.get("reason") != "blocked_user":
+                publish_event(
+                    event_user,
+                    "validate",
+                    error_body.get("reason", "FAILED").upper(),
+                    error_body.get("message", "validate_error"),
+                    metadata,
+                    simulation_uuid=simulation_uuid,
+                )
             return error_body, status_code
 
         record_audit(user["username"], "validate", "SUCCESS", "Token válido", metadata, payload.get("jti"), simulation_uuid=simulation_uuid)
-        publish_event(user["username"], "validate", "SUCCESS", "token_valid", metadata, token, payload.get("jti"), simulation_uuid=simulation_uuid)
+        publish_event(user["username"], "validate", "SUCCESS", "token_valid", metadata, auth_id=payload.get("jti"), simulation_uuid=simulation_uuid)
         return {
             "valid": True,
             "message": "Token válido",

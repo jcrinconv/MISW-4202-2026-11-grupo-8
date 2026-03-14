@@ -17,6 +17,15 @@ from .storage import Storage
 logger = logging.getLogger(__name__)
 
 
+def _history_key(event: AuthEvent) -> str:
+    simulation_uuid = event.simulation_uuid or "__default__"
+    return f"{event.user}:{simulation_uuid}"
+
+
+def _notification_key(event: AuthEvent, rule_name: str) -> str:
+    return f"{_history_key(event)}:{rule_name}"
+
+
 class EventProcessor:
     def __init__(
         self,
@@ -32,17 +41,19 @@ class EventProcessor:
         self._storage = storage
         self._histories: Dict[str, UserHistory] = defaultdict(UserHistory)
         self._locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._last_notifications: Dict[str, datetime] = {}
         self._max_window = max([settings.max_history_seconds] + [rule.window_seconds for rule in rules])
 
     async def handle_event(self, event: AuthEvent) -> ProcessedEvent:
         received_at = datetime.now(timezone.utc)
         anomalies: List[AnomalyDecision] = []
         blocked_event = self._is_blocked_event(event)
+        history_key = _history_key(event)
 
         if not blocked_event:
-            lock = self._locks[event.user]
+            lock = self._locks[history_key]
             async with lock:
-                history = self._histories[event.user]
+                history = self._histories[history_key]
                 history.append(event, recorded_at=received_at)
                 history.prune(self._max_window, received_at)
                 for rule in self._rules:
@@ -52,6 +63,8 @@ class EventProcessor:
                         logger.exception("Rule %s failed: %s", rule.name, exc)
                         continue
                     if decision:
+                        if self._is_duplicate_notification(event, rule.name, rule.window_seconds, decision.detected_at):
+                            continue
                         anomalies.append(decision)
 
         dispatch_outcomes = [] if blocked_event else await self._dispatch(anomalies)
@@ -92,6 +105,30 @@ class EventProcessor:
             await self._storage.persist(event=event, processed=processed_event)
 
         return processed_event
+
+    def _is_duplicate_notification(
+        self,
+        event: AuthEvent,
+        rule_name: str,
+        window_seconds: int,
+        detected_at: datetime,
+    ) -> bool:
+        notification_key = _notification_key(event, rule_name)
+        last_notification = self._last_notifications.get(notification_key)
+        if last_notification and (detected_at - last_notification).total_seconds() < window_seconds:
+            return True
+        self._last_notifications[notification_key] = detected_at
+        self._prune_notifications(detected_at)
+        return False
+
+    def _prune_notifications(self, now: datetime) -> None:
+        expired = [
+            key
+            for key, detected_at in self._last_notifications.items()
+            if (now - detected_at).total_seconds() > self._max_window
+        ]
+        for key in expired:
+            del self._last_notifications[key]
 
     @staticmethod
     def _is_blocked_event(event: AuthEvent) -> bool:

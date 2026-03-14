@@ -37,9 +37,13 @@ Queue/API → AuthAnomaly (/auth-event) → Auth (/block-user)
   "metadata": {"ip": "1.1.1.1", "device_id": "abc", "geo": "BOG"},
   "auth_token": "<JWT opcional>",
   "auth_id": "uuid opcional",
+  "simulation_uuid": "uuid opcional de la simulación",
   "occurred_at": "2026-03-11T15:00:00Z"
 }
 ```
+
+Cada regla se evalúa sobre el conjunto `user + simulation_uuid`.
+Esto evita que eventos históricos de simulaciones anteriores disparen bloqueos sobre una simulación nueva del mismo usuario.
 
 ## Configuración (variables de entorno)
 
@@ -58,8 +62,8 @@ Queue/API → AuthAnomaly (/auth-event) → Auth (/block-user)
 | `AUTH_CREATE_SCHEMA_ON_STARTUP` | Crear tablas automáticamente al iniciar | `true` |
 | `AUTH_FAILURE_THRESHOLD` | Fallos consecutivos para disparar alerta | `3` |
 | `AUTH_FAILURE_WINDOW_SECONDS` | Ventana para la regla de fallos | `60` |
-| `AUTH_MULTI_IP_THRESHOLD` | Cantidad de IPs únicas para alertar | `3` |
-| `AUTH_MULTI_IP_WINDOW_SECONDS` | Ventana para multi IP | `90` |
+| `AUTH_MULTI_IP_THRESHOLD` | Cantidad de requests consecutivos desde países distintos para alertar | `2` |
+| `AUTH_MULTI_IP_WINDOW_SECONDS` | Ventana para la regla geo/multi país | `60` |
 | `AUTH_TOKEN_REPLAY_TTL_SECONDS` | TTL para detectar reutilización de token | `180` |
 | `AUTH_DETECTION_SLA_MS` | SLA máximo aceptado | `2000` |
 | `AUTH_RATELIMIT_THRESHOLD` | Cantidad máxima de requests permitidos en la ventana | `30` |
@@ -110,20 +114,21 @@ Con esto puedes demostrar que cada detección tardó < 2000 ms y que la notifica
 ## Escenarios de prueba recomendados
 
 - **Fuerza bruta (fallos)**: enviar 3 `login` fallidos para un mismo usuario y observar la regla `repeated_failures`.
-- **Multi-IP**: simular fallos desde IPs distintas enviando la IP en el campo `metadata.ip`.
+- **Geo / Multi-país**: enviar 2 requests consecutivos de la misma actividad para el mismo usuario y la misma simulación, cambiando el país en `metadata.geo`.
   También puedes enviar la metadata vía headers (el autenticador la fusiona en el payload):
   `X-Client-IP`, `X-Geo`, `X-Device-Id`, `X-Simulation-UUID`.
   Ejemplo de payload para cada evento:
   ```json
   {
     "user": "bob",
-    "activity": "login",
-    "status": "failed",
+    "activity": "validate",
+    "status": "success",
+    "simulation_uuid": "sim-geo-1",
     "metadata": { "ip": "10.0.0.X", "geo": "MX" }
   }
   ```
-  Repite cambiando `X` para alcanzar el umbral configurado.
-- **Replay de token**: reutilizar el mismo `auth_token` con dos usuarios distintos.
+  Envía un segundo evento con el mismo `simulation_uuid` y otro país para disparar la regla.
+- **Replay de token**: reutilizar el mismo `auth_token` con dos usuarios distintos dentro de la misma simulación.
 - **Rate limit orgánico**: realizar más de `AUTH_RATELIMIT_THRESHOLD` solicitudes `validate` exitosas en la ventana (por defecto 30/min). Ejemplo rápido:
 
   ```bash
@@ -151,6 +156,22 @@ Con esto puedes demostrar que cada detección tardó < 2000 ms y que la notifica
   ```
 
   La petición número 30 generará una anomalía `rate_limit` y disparará la notificación al bloqueador.
+
+## Reglas actuales
+
+- **`repeated_failures`**
+  - Detecta fallos repetidos de la misma actividad dentro de la ventana configurada.
+
+- **`multi_ip_bruteforce`**
+  - Detecta `AUTH_MULTI_IP_THRESHOLD` requests consecutivos de la misma actividad, para el mismo usuario y la misma simulación, desde países distintos.
+  - Utiliza `metadata.geo` y complementa el diagnóstico con la IP más frecuente observada.
+
+- **`rate_limit`**
+  - Detecta actividad autenticada que supera el límite de interacción humana esperado, por defecto en `validate` exitosos.
+
+- **`token_replay`**
+  - Solo aplica si llega `auth_token` en el evento.
+  - Su memoria también queda aislada por `simulation_uuid`.
 
 ## Extensión de reglas
 

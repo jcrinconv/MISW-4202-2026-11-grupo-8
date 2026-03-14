@@ -1,14 +1,14 @@
 package proccessor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"Exp2_Seguridad/users/external_service"
@@ -32,9 +32,12 @@ func NewBotImpersonEvent(client *http.Client) IBotImpersonEvent {
 }
 
 func (e *BotImpersonEvent) Proccess(ctx context.Context, simulationID string, user models.User) error {
-	user.Password = "wrongpassword"
-
-	metadata := models.Metadata{SimulationUUID: simulationID}
+	metadata := models.Metadata{
+		SimulationUUID: simulationID,
+		IP:             "192.168.10.10",
+		DeviceID:       "bot-imperson-device",
+		Geo:            "COLOMBIA",
+	}
 	token, err := external_service.Login(ctx, user, metadata)
 	if err != nil {
 		eventType := models.EventTypeLogin
@@ -71,85 +74,75 @@ func (e *BotImpersonEvent) Proccess(ctx context.Context, simulationID string, us
 }
 
 func (e *BotImpersonEvent) simulateActivityReservas(ctx context.Context, simulationID, userID, token string) error {
-	const maxRequests = 100
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, maxRequests)
+	const maxRequests = 35
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
 	for i := 0; i < maxRequests; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		if i > 0 {
 			select {
 			case <-ctx.Done():
-				return
-			default:
+				return ctx.Err()
+			case <-ticker.C:
 			}
+		}
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, gatewayURL+"/reservas", nil)
-			if err != nil {
-				errCh <- err
-				cancel()
-				return
-			}
-			req.Header.Set("X-Auth-Token", token)
-			req.Header.Set("X-Simulation-UUID", simulationID)
+		payload := map[string]interface{}{
+			"origen":          "BOG",
+			"destino":         "MDE",
+			"fecha":           "2026-03-15",
+			"pasajeros":       1,
+			"simulation_uuid": simulationID,
+		}
+		bodyBytes, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
 
-			resp, err := e.client.Do(req)
-			if err != nil {
-				log.Printf("bot imperson request error: %v", err)
-				return
-			}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, gatewayURL+"/reservas", bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("X-Auth-Token", token)
+		req.Header.Set("X-Simulation-UUID", simulationID)
+		req.Header.Set("X-Geo", "COLOMBIA")
+		req.Header.Set("X-Device-Id", "bot-imperson-device")
+		req.Header.Set("X-Client-IP", "192.168.10.10")
+		req.Header.Set("Content-Type", "application/json")
 
-			if resp.StatusCode >= http.StatusBadRequest {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if blocked, message := external_service.IsBlockedResponse(resp.StatusCode, bodyBytes); blocked {
-					external_service.SaveAuditEvent(models.AuditEvent{
-						SimulationID:   simulationID,
-						SimulationUUID: simulationID,
-						UserID:         userID,
-						ProcessorType:  "bot_imperson",
-						EventType:      models.EventTypeUserBlocked,
-						Status:         models.StatusBlocked,
-						ErrorMessage:   message,
-					})
-					errCh <- fmt.Errorf("%w: %s", external_service.ErrUserBlocked, message)
-					cancel()
-					return
-				}
-				log.Printf("bot imperson request status: %s", resp.Status)
-				return
-			}
+		resp, err := e.client.Do(req)
+		if err != nil {
+			return err
+		}
 
-			external_service.SaveAuditEvent(models.AuditEvent{
-				SimulationID:   simulationID,
-				SimulationUUID: simulationID,
-				UserID:         userID,
-				ProcessorType:  "bot_imperson",
-				EventType:      models.EventTypeRequest,
-				Status:         models.StatusSuccess,
-			})
+		if resp.StatusCode >= http.StatusBadRequest {
+			bodyBytes, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-		}()
+			if blocked, message := external_service.IsBlockedResponse(resp.StatusCode, bodyBytes); blocked {
+				external_service.SaveAuditEvent(models.AuditEvent{
+					SimulationID:   simulationID,
+					SimulationUUID: simulationID,
+					UserID:         userID,
+					ProcessorType:  "bot_imperson",
+					EventType:      models.EventTypeUserBlocked,
+					Status:         models.StatusBlocked,
+					ErrorMessage:   message,
+				})
+				return fmt.Errorf("%w: %s", external_service.ErrUserBlocked, message)
+			}
+			return fmt.Errorf("bot imperson request failed with status %s", resp.Status)
+		}
+
+		external_service.SaveAuditEvent(models.AuditEvent{
+			SimulationID:   simulationID,
+			SimulationUUID: simulationID,
+			UserID:         userID,
+			ProcessorType:  "bot_imperson",
+			EventType:      models.EventTypeRequest,
+			Status:         models.StatusSuccess,
+		})
+		resp.Body.Close()
 	}
 
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-ctx.Done():
-	case <-done:
-	}
-
-	close(errCh)
-	for err := range errCh {
-		return err
-	}
-	return ctx.Err()
+	return nil
 }

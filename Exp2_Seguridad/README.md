@@ -105,6 +105,62 @@ Cada simulación ejecuta 5 escenarios diferentes:
 | **geo_anomaly** | Login desde múltiples ubicaciones geográficas | Detección de anomalía geográfica |
 | **token_replay** | (Si aplica) Reutilización de tokens | Detección de replay attack |
 
+## Casos que detecta actualmente `Auth_Anomaly`
+
+El microservicio `Auth_Anomaly` consume únicamente eventos publicados por `auth` en Redis y reenviados por `auth-queue` al endpoint `POST /auth-event`.
+
+### Reglas activas
+
+| Regla | Qué evalúa | Umbral por defecto | Fuente de eventos |
+|-------|------------|--------------------|-------------------|
+| **repeated_failures** | Fallos repetidos para la misma actividad (`login`, `validate`) | 3 fallos en 60s | `auth` |
+| **multi_ip_bruteforce** | 2 requests consecutivos de la misma actividad, misma simulación y países diferentes | 2 eventos en 60s | `auth` |
+| **rate_limit** | Alta frecuencia de eventos exitosos para actividades configuradas | 30 eventos `validate` exitosos en 60s | `auth` |
+| **token_replay** | Reutilización del mismo token por usuarios distintos | TTL 180s | `auth` |
+
+### Qué bloquea hoy en la práctica
+
+- **`unauth_login` / anomalías de autenticación**
+  - Sí puede disparar bloqueo porque genera eventos `login` fallidos en `auth`.
+  - Esos eventos sí entran a `Auth_Anomaly` y coinciden con `repeated_failures`.
+
+- **`geo_anomaly`**
+  - Ahora sí puede bloquearse si produce **2 requests consecutivos en 1 minuto desde países diferentes**.
+  - La regla se evalúa por combinación de **usuario + `simulation_uuid`**, por lo que no mezcla eventos de simulaciones anteriores.
+  - `auth` recibe `geo`, `device_id` e `ip` vía `metadata` o headers reenviados por `api-gateway`.
+
+- **`bot_imperson`**
+  - Ahora realiza un **login exitoso inicial** y luego genera una ráfaga autenticada de requests hacia `reservas`.
+  - Esa ráfaga pasa por `api-gateway -> auth/validate`, por lo que sí alimenta la regla `rate_limit`.
+  - Todas las validaciones y requests del patrón reutilizan el mismo `simulation_uuid`.
+
+### Limitaciones actuales importantes
+
+- **`Auth_Anomaly` solo ve eventos emitidos por `auth`**.
+  - No consume directamente eventos del microservicio `users`.
+  - No consume directamente eventos del microservicio `reservas`.
+
+- **Las reglas se aíslan por simulación**.
+  - El historial en memoria se indexa por `user + simulation_uuid`.
+  - Esto evita bloquear un usuario en una simulación nueva por eventos de una simulación anterior.
+
+- **La detección de `bot_imperson` depende del flujo `validate`**.
+  - Para detectar bot por volumen, el usuario debe autenticarse exitosamente y luego generar muchas llamadas que pasen por `api-gateway -> auth/validate`.
+
+- **`token_replay` quedó inactivo si no se propaga el token**.
+  - Si `auth` deja de enviar `auth_token` hacia `Auth_Anomaly`, la regla `token_replay` no tendrá insumo para detectar reutilización.
+
+### Cómo interpretar los resultados actuales
+
+- **Si se bloquea `auth`**
+  - Generalmente corresponde a patrones de `login` fallido repetido o eventos de autenticación sospechosos evaluados por `Auth_Anomaly`.
+
+- **Si no se bloquea `geo_anomaly`**
+  - Revisa si realmente se enviaron **2 requests consecutivos** con el mismo `simulation_uuid` y con `geo` diferente.
+
+- **Si no se bloquea `bot_imperson`**
+  - Puede significar que el flujo no está llegando a `validate` con suficiente volumen como para superar `AUTH_RATELIMIT_THRESHOLD`.
+
 ### Obtener los UUIDs de Simulación
 
 Las simulaciones se ejecutan en background. Para obtener los `simulation_uuid` generados, consulta la base de datos:
