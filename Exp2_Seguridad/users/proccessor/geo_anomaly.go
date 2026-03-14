@@ -6,6 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -56,13 +59,19 @@ func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, use
 
 	token, err := external_service.Login(ctx, user, loginMeta)
 	if err != nil {
+		eventType := models.EventTypeLogin
+		status := models.StatusError
+		if errors.Is(err, external_service.ErrUserBlocked) {
+			eventType = models.EventTypeUserBlocked
+			status = models.StatusBlocked
+		}
 		external_service.SaveAuditEvent(models.AuditEvent{
 			SimulationID:   simulationID,
 			SimulationUUID: simulationID,
 			UserID:         user.User,
 			ProcessorType:  "geo_anomaly",
-			EventType:      models.EventTypeLogin,
-			Status:         models.StatusError,
+			EventType:      eventType,
+			Status:         status,
 			ErrorMessage:   err.Error(),
 			DetailJSON:     loginDetailJSON,
 		})
@@ -128,6 +137,21 @@ func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, use
 		status := models.StatusSuccess
 		errorMessage := ""
 		if resp.StatusCode >= http.StatusBadRequest {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if blocked, message := external_service.IsBlockedResponse(resp.StatusCode, bodyBytes); blocked {
+				external_service.SaveAuditEvent(models.AuditEvent{
+					SimulationID:   simulationID,
+					SimulationUUID: simulationID,
+					UserID:         user.User,
+					ProcessorType:  "geo_anomaly",
+					EventType:      models.EventTypeUserBlocked,
+					Status:         models.StatusBlocked,
+					ErrorMessage:   message,
+					DetailJSON:     detailJSON,
+				})
+				return fmt.Errorf("%w: %s", external_service.ErrUserBlocked, message)
+			}
 			status = models.StatusError
 			errorMessage = resp.Status
 		}

@@ -228,6 +228,17 @@ WHERE activity = 'block-user'
 ORDER BY occurred_at DESC;
 ```
 
+**Respuesta cuando un usuario está bloqueado:**
+
+- `POST /login` → `403`
+  ```json
+  {"message": "Usuario bloqueado", "reason": "<blocked_reason>"}
+  ```
+- `POST /validate` → `403`
+  ```json
+  {"message": "Usuario bloqueado", "valid": false, "reason": "blocked_user"}
+  ```
+
 ### 4. SQLite - Reservas Service
 
 ```bash

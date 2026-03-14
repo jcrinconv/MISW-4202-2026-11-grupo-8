@@ -246,7 +246,7 @@ def validate_token_value(token: str) -> tuple[dict | None, dict | None, tuple[di
         user_data = {
             "id": user.id,
             "username": user.username,
-            "role": user["role"],
+            "role": user.role,
             "token_version": user.token_version,
         }
         return user_data, payload, None

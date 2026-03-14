@@ -2,6 +2,9 @@ package proccessor
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -34,13 +37,19 @@ func (e *BotImpersonEvent) Proccess(ctx context.Context, simulationID string, us
 	metadata := models.Metadata{SimulationUUID: simulationID}
 	token, err := external_service.Login(ctx, user, metadata)
 	if err != nil {
+		eventType := models.EventTypeLogin
+		status := models.StatusError
+		if errors.Is(err, external_service.ErrUserBlocked) {
+			eventType = models.EventTypeUserBlocked
+			status = models.StatusBlocked
+		}
 		external_service.SaveAuditEvent(models.AuditEvent{
 			SimulationID:   simulationID,
 			SimulationUUID: simulationID,
 			UserID:         user.User,
 			ProcessorType:  "bot_imperson",
-			EventType:      models.EventTypeLogin,
-			Status:         models.StatusError,
+			EventType:      eventType,
+			Status:         status,
 			ErrorMessage:   err.Error(),
 		})
 		return err
@@ -90,7 +99,14 @@ func (e *BotImpersonEvent) simulateActivityReservas(ctx context.Context, simulat
 
 			resp, err := e.client.Do(req)
 			if err != nil {
-				if err.Error() == "user blocked" {
+				log.Printf("bot imperson request error: %v", err)
+				return
+			}
+
+			if resp.StatusCode >= http.StatusBadRequest {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if blocked, message := external_service.IsBlockedResponse(resp.StatusCode, bodyBytes); blocked {
 					external_service.SaveAuditEvent(models.AuditEvent{
 						SimulationID:   simulationID,
 						SimulationUUID: simulationID,
@@ -98,28 +114,24 @@ func (e *BotImpersonEvent) simulateActivityReservas(ctx context.Context, simulat
 						ProcessorType:  "bot_imperson",
 						EventType:      models.EventTypeUserBlocked,
 						Status:         models.StatusBlocked,
-						ErrorMessage:   err.Error(),
+						ErrorMessage:   message,
 					})
-					errCh <- err
+					errCh <- fmt.Errorf("%w: %s", external_service.ErrUserBlocked, message)
 					cancel()
 					return
 				}
-				log.Printf("bot imperson request error: %v", err)
+				log.Printf("bot imperson request status: %s", resp.Status)
 				return
 			}
 
-			if resp.StatusCode >= http.StatusBadRequest {
-				log.Printf("bot imperson request status: %s", resp.Status)
-			} else {
-				external_service.SaveAuditEvent(models.AuditEvent{
-					SimulationID:   simulationID,
-					SimulationUUID: simulationID,
-					UserID:         userID,
-					ProcessorType:  "bot_imperson",
-					EventType:      models.EventTypeRequest,
-					Status:         models.StatusSuccess,
-				})
-			}
+			external_service.SaveAuditEvent(models.AuditEvent{
+				SimulationID:   simulationID,
+				SimulationUUID: simulationID,
+				UserID:         userID,
+				ProcessorType:  "bot_imperson",
+				EventType:      models.EventTypeRequest,
+				Status:         models.StatusSuccess,
+			})
 			resp.Body.Close()
 		}()
 	}

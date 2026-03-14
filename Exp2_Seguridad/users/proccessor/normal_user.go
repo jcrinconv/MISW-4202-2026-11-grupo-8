@@ -6,6 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"time"
@@ -31,13 +34,19 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 	metadata := models.Metadata{SimulationUUID: simulationID}
 	token, err := external_service.Login(ctxTimeout, user, metadata)
 	if err != nil {
+		eventType := models.EventTypeLogin
+		status := models.StatusError
+		if errors.Is(err, external_service.ErrUserBlocked) {
+			eventType = models.EventTypeUserBlocked
+			status = models.StatusBlocked
+		}
 		external_service.SaveAuditEvent(models.AuditEvent{
 			SimulationID:   simulationID,
 			SimulationUUID: simulationID,
 			UserID:         user.User,
 			ProcessorType:  "normal_user",
-			EventType:      models.EventTypeLogin,
-			Status:         models.StatusError,
+			EventType:      eventType,
+			Status:         status,
 			ErrorMessage:   err.Error(),
 		})
 		return err
@@ -87,17 +96,32 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 			if err != nil {
 				return err
 			}
-
-			if resp.StatusCode < http.StatusBadRequest {
-				external_service.SaveAuditEvent(models.AuditEvent{
-					SimulationID:   simulationID,
-					SimulationUUID: simulationID,
-					UserID:         user.User,
-					ProcessorType:  "normal_user",
-					EventType:      models.EventTypeRequest,
-					Status:         models.StatusSuccess,
-				})
+			if resp.StatusCode >= http.StatusBadRequest {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if blocked, message := external_service.IsBlockedResponse(resp.StatusCode, bodyBytes); blocked {
+					external_service.SaveAuditEvent(models.AuditEvent{
+						SimulationID:   simulationID,
+						SimulationUUID: simulationID,
+						UserID:         user.User,
+						ProcessorType:  "normal_user",
+						EventType:      models.EventTypeUserBlocked,
+						Status:         models.StatusBlocked,
+						ErrorMessage:   message,
+					})
+					return fmt.Errorf("%w: %s", external_service.ErrUserBlocked, message)
+				}
+				continue
 			}
+
+			external_service.SaveAuditEvent(models.AuditEvent{
+				SimulationID:   simulationID,
+				SimulationUUID: simulationID,
+				UserID:         user.User,
+				ProcessorType:  "normal_user",
+				EventType:      models.EventTypeRequest,
+				Status:         models.StatusSuccess,
+			})
 
 			resp.Body.Close()
 		}

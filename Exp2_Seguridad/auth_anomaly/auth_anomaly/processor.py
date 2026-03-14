@@ -37,22 +37,24 @@ class EventProcessor:
     async def handle_event(self, event: AuthEvent) -> ProcessedEvent:
         received_at = datetime.now(timezone.utc)
         anomalies: List[AnomalyDecision] = []
+        blocked_event = self._is_blocked_event(event)
 
-        lock = self._locks[event.user]
-        async with lock:
-            history = self._histories[event.user]
-            history.append(event, recorded_at=received_at)
-            history.prune(self._max_window, received_at)
-            for rule in self._rules:
-                try:
-                    decision = await rule.evaluate(event, history)
-                except Exception as exc:  # pragma: no cover - logged only
-                    logger.exception("Rule %s failed: %s", rule.name, exc)
-                    continue
-                if decision:
-                    anomalies.append(decision)
+        if not blocked_event:
+            lock = self._locks[event.user]
+            async with lock:
+                history = self._histories[event.user]
+                history.append(event, recorded_at=received_at)
+                history.prune(self._max_window, received_at)
+                for rule in self._rules:
+                    try:
+                        decision = await rule.evaluate(event, history)
+                    except Exception as exc:  # pragma: no cover - logged only
+                        logger.exception("Rule %s failed: %s", rule.name, exc)
+                        continue
+                    if decision:
+                        anomalies.append(decision)
 
-        dispatch_outcomes = await self._dispatch(anomalies)
+        dispatch_outcomes = [] if blocked_event else await self._dispatch(anomalies)
         notifications = [
             NotificationResult(
                 user=decision.user,
@@ -90,6 +92,12 @@ class EventProcessor:
             await self._storage.persist(event=event, processed=processed_event)
 
         return processed_event
+
+    @staticmethod
+    def _is_blocked_event(event: AuthEvent) -> bool:
+        if event.status == "BLOCKED_USER":
+            return True
+        return event.activity == "login" and event.status == "DENIED"
 
     async def _dispatch(self, anomalies: List[AnomalyDecision]) -> List[Tuple[AnomalyDecision, bool, str | None]]:
         if not anomalies:

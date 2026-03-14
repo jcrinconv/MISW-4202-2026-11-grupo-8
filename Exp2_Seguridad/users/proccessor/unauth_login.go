@@ -4,6 +4,7 @@ import (
 	"Exp2_Seguridad/users/external_service"
 	"Exp2_Seguridad/users/models"
 	"context"
+	"errors"
 	"net/http"
 )
 
@@ -27,7 +28,7 @@ func (e *UnauthLoginEvent) Proccess(ctx context.Context, simulationID string, us
 	for i := 0; i < 10; i++ {
 		_, err := external_service.Login(ctx, user, metadata)
 		if err != nil {
-			if err.Error() == "user blocked" {
+			if errors.Is(err, external_service.ErrUserBlocked) {
 				external_service.SaveAuditEvent(models.AuditEvent{
 					SimulationID:   simulationID,
 					SimulationUUID: simulationID,
@@ -37,7 +38,7 @@ func (e *UnauthLoginEvent) Proccess(ctx context.Context, simulationID string, us
 					Status:         models.StatusBlocked,
 					ErrorMessage:   err.Error(),
 				})
-				break
+				return err
 			}
 			external_service.SaveAuditEvent(models.AuditEvent{
 				SimulationID:   simulationID,
