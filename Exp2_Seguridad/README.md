@@ -77,6 +77,22 @@ El servicio `users` expone un endpoint para iniciar simulaciones de diferentes e
 curl -X POST http://localhost:8081/trigger
 ```
 
+> **¡IMPORTANTE!**
+> Al finalizar cada simulación, ejecuta este curl para desbloquear usuarios y evitar que
+> los bloqueos persistan entre simulaciones:
+>
+> ```bash
+> curl -X POST http://localhost:8082/unblock-users \
+>   -H "Content-Type: application/json" \
+>   -d '{"simulation_uuid": "<UUID-SI-LO-TIENES>"}'
+> ```
+>
+> Si no tienes el UUID, puedes omitirlo (se desbloquean todos los usuarios bloqueados):
+>
+> ```bash
+> curl -X POST http://localhost:8082/unblock-users
+> ```
+
 ### Escenarios Simulados
 
 Cada simulación ejecuta 5 escenarios diferentes:
@@ -111,35 +127,54 @@ docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 s
 **Consultas útiles:**
 
 ```sql
--- Ver todos los eventos de una simulación específica
-SELECT * FROM audit_events 
-WHERE simulation_uuid = 'TU-UUID-AQUI'
-ORDER BY created_at;
-
--- Ver eventos agrupados por tipo y estado
-SELECT simulation_uuid, processor_type, event_type, status, COUNT(*) as total
-FROM audit_events
-GROUP BY simulation_uuid, processor_type, event_type, status
-ORDER BY simulation_uuid, created_at;
-
--- Ver últimas 20 simulaciones
-SELECT DISTINCT simulation_uuid, MIN(created_at) as started_at
-FROM audit_events
-GROUP BY simulation_uuid
-ORDER BY started_at DESC
-LIMIT 20;
-
--- Trazar una simulación completa
+-- Resumen por simulación y tipo de simulación (processor_type)
 SELECT 
-    created_at,
-    user_id,
-    processor_type,
+    simulation_uuid,
+    processor_type AS simulation_type,
+    CASE
+        WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
+        ELSE 'running'
+    END AS simulation_status,
+    MIN(created_at) AS started_at,
+    MAX(created_at) AS ended_at,
+    COUNT(*) AS total_events,
+    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success,
+    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
+    SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked
+FROM audit_events
+WHERE simulation_uuid IS NOT NULL
+GROUP BY simulation_uuid, processor_type
+ORDER BY started_at DESC;
+
+-- ECASE
+        WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
+        ELSE 'running'
+    END AS simulation_status,
+    ventos agrupados por simulación y tipo de simulación
+SELECT 
+    simulation_uuid,
+    processor_type AS simulation_type,
     event_type,
     status,
-    error_message
+    COUNT(*) AS total
 FROM audit_events
-WHERE simulation_uuid = 'TU-UUID-AQUI'
-ORDER BY created_at;
+WHERsimulation_status,
+    E simulation_uuid IS NOT NULL
+GROUP BY simulation_uuid, processor_type, event_type, status
+ORDER BY simulation_uuid, processor_type;
+
+-- Timeline de todos los eventos (últimos 50) con tipo de simulación
+SELECT 
+    simulation_uuid,
+    processor_type AS simulation_type,
+    created_at,
+    user_id,
+    event_type,
+    status
+FROM audit_events
+WHERE simulation_uuid IS NOT NULL
+ORDER BY created_at DESC
+LIMIT 50;
 ```
 
 ### 2. SQLite - Auth Service

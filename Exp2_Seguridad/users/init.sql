@@ -6,6 +6,8 @@ USE security_audit;
 CREATE TABLE IF NOT EXISTS audit_events (
     id INT AUTO_INCREMENT PRIMARY KEY,
     simulation_id VARCHAR(36) NOT NULL COMMENT 'UUID v4 de la simulación',
+    simulation_uuid VARCHAR(36) NULL COMMENT 'UUID de simulación para trazabilidad',
+    simulation_status VARCHAR(20) NULL COMMENT 'Estado de la simulación (running/finished)',
     user_id VARCHAR(50) NOT NULL COMMENT 'ID del usuario simulado',
     processor_type VARCHAR(50) NOT NULL COMMENT 'Tipo de procesador (bot_imperson, normal_user, etc.)',
     event_type VARCHAR(50) NOT NULL COMMENT 'Tipo de evento (login, request, user_blocked, etc.)',
@@ -13,6 +15,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
     error_message TEXT COMMENT 'Mensaje de error si aplica',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Timestamp del evento',
     INDEX idx_simulation_id (simulation_id),
+    INDEX idx_simulation_uuid (simulation_uuid),
+    INDEX idx_simulation_status (simulation_status),
     INDEX idx_user_id (user_id),
     INDEX idx_created_at (created_at),
     INDEX idx_processor_type (processor_type),

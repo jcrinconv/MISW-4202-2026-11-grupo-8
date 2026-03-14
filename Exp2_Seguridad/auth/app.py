@@ -365,10 +365,67 @@ class BlockUser(Resource):
             session.close()
 
 
+class UnblockUsers(Resource):
+    def post(self):
+        body = get_json_body()
+        metadata = get_client_metadata(body)
+        simulation_uuid = body.get("simulation_uuid") or metadata.get("simulation_uuid")
+        raw_users = body.get("users") or ([] if not body.get("user") else [body.get("user")])
+        users: list[str] | None = None
+
+        if raw_users:
+            if isinstance(raw_users, str):
+                users = [raw_users]
+            elif isinstance(raw_users, list) and all(isinstance(u, str) for u in raw_users):
+                users = raw_users
+            else:
+                return {"message": "El campo users debe ser una lista de strings"}, 400
+
+        session = get_session()
+        try:
+            if users:
+                query = select(User).where(User.username.in_(users))
+            else:
+                query = select(User).where(User.is_blocked.is_(True))
+
+            matched = session.scalars(query).all()
+            if not matched:
+                record_audit(None, "unblock-user", "SUCCESS", "No hay usuarios bloqueados", metadata, simulation_uuid=simulation_uuid)
+                publish_event("system", "unblock-user", "SUCCESS", "no_blocked_users", metadata, simulation_uuid=simulation_uuid)
+                return {"message": "No hay usuarios bloqueados", "count": 0, "users": []}, 200
+
+            unblocked: list[str] = []
+            for user in matched:
+                if user.is_blocked:
+                    user.is_blocked = False
+                    user.blocked_reason = None
+                    user.blocked_at = None
+                    user.token_version = int(user.token_version) + 1
+                    session.add(user)
+                    unblocked.append(user.username)
+                    record_audit(user.username, "unblock-user", "SUCCESS", "Usuario desbloqueado", metadata, simulation_uuid=simulation_uuid)
+                    publish_event(user.username, "unblock-user", "SUCCESS", "user_unblocked", metadata, simulation_uuid=simulation_uuid)
+
+            session.commit()
+            return {
+                "message": "Usuarios desbloqueados",
+                "count": len(unblocked),
+                "users": unblocked,
+            }, 200
+        except Exception as exc:
+            session.rollback()
+            record_audit(None, "unblock-user", "FAILED", str(exc), metadata, simulation_uuid=simulation_uuid)
+            publish_event("system", "unblock-user", "FAILED", "unblock_error", metadata, simulation_uuid=simulation_uuid)
+            return {"message": "Error desbloqueando usuarios", "detail": str(exc)}, 500
+        finally:
+            session.close()
+
+
 api.add_resource(Health, "/health")
 api.add_resource(Login, "/login")
 api.add_resource(Validate, "/validate")
 api.add_resource(BlockUser, "/block-user")
+api.add_resource(UnblockUsers, "/unblock-users")
 
 seed_users()
 

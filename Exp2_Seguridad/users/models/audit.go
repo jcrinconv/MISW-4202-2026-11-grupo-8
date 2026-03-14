@@ -3,14 +3,15 @@ package models
 import "time"
 
 type AuditEvent struct {
-	SimulationID   string
-	SimulationUUID string
-	UserID         string
-	ProcessorType  string
-	EventType      string
-	Status         string
-	ErrorMessage   string
-	CreatedAt      time.Time
+	SimulationID     string
+	SimulationUUID   string
+	SimulationStatus string
+	UserID           string
+	ProcessorType    string
+	EventType        string
+	Status           string
+	ErrorMessage     string
+	CreatedAt        time.Time
 }
 
 const (
@@ -23,4 +24,7 @@ const (
 	StatusSuccess = "success"
 	StatusError   = "error"
 	StatusBlocked = "blocked"
+
+	SimulationStatusRunning  = "running"
+	SimulationStatusFinished = "finished"
 )

@@ -52,7 +52,8 @@ func InitAuditTable() error {
 	CREATE TABLE IF NOT EXISTS audit_events (
 		id INT AUTO_INCREMENT PRIMARY KEY,
 		simulation_id VARCHAR(36) NOT NULL,
-		simulation_uuid VARCHAR(36) NOT NULL,
+		simulation_uuid VARCHAR(36) NULL,
+		simulation_status VARCHAR(20) NULL,
 		user_id VARCHAR(50) NOT NULL,
 		processor_type VARCHAR(50) NOT NULL,
 		event_type VARCHAR(50) NOT NULL,
@@ -61,6 +62,7 @@ func InitAuditTable() error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		INDEX idx_simulation_id (simulation_id),
 		INDEX idx_simulation_uuid (simulation_uuid),
+		INDEX idx_simulation_status (simulation_status),
 		INDEX idx_user_id (user_id),
 		INDEX idx_created_at (created_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -70,6 +72,30 @@ func InitAuditTable() error {
 	if err != nil {
 		return fmt.Errorf("error creando tabla audit_events: %w", err)
 	}
+
+	// Migración: agregar columna simulation_uuid si no existe (para tablas creadas antes del cambio)
+	addColumnSQL := `
+	ALTER TABLE audit_events 
+	ADD COLUMN IF NOT EXISTS simulation_uuid VARCHAR(36) NULL AFTER simulation_id;
+	`
+	_, _ = db.Exec(addColumnSQL) // Ignorar error si la columna ya existe
+
+	addStatusColumnSQL := `
+	ALTER TABLE audit_events 
+	ADD COLUMN IF NOT EXISTS simulation_status VARCHAR(20) NULL AFTER simulation_uuid;
+	`
+	_, _ = db.Exec(addStatusColumnSQL) // Ignorar error si la columna ya existe
+
+	// Agregar índice si no existe
+	addIndexSQL := `
+	CREATE INDEX IF NOT EXISTS idx_simulation_uuid ON audit_events(simulation_uuid);
+	`
+	_, _ = db.Exec(addIndexSQL) // Ignorar error si el índice ya existe
+
+	addStatusIndexSQL := `
+	CREATE INDEX IF NOT EXISTS idx_simulation_status ON audit_events(simulation_status);
+	`
+	_, _ = db.Exec(addStatusIndexSQL) // Ignorar error si el índice ya existe
 
 	log.Println("Tabla audit_events creada o verificada exitosamente")
 	return nil

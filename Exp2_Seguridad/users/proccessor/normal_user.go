@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math/rand"
 	"net/http"
 	"time"
 )
@@ -51,11 +52,13 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 		Status:         models.StatusSuccess,
 	})
 
-	interval := time.Minute / 3
+	localRng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	requestCount := localRng.Intn(2) + 3 // 3 o 4 requests
+	interval := 10 * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < requestCount; i++ {
 		select {
 		case <-ctxTimeout.Done():
 			return ctxTimeout.Err()
