@@ -20,6 +20,7 @@ class ReservaEvent(Base):
     method: Mapped[str] = mapped_column(String(10))
     path: Mapped[str] = mapped_column(String(255))
     x_auth_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    simulation_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     headers_json: Mapped[str] = mapped_column(Text)
     query_json: Mapped[str] = mapped_column(Text)
     body_json: Mapped[str] = mapped_column(Text)
@@ -46,14 +47,19 @@ api = Api(app)
 def persist_request() -> tuple[int | None, str | None]:
     session = SessionLocal()
     try:
-        body = request.get_json(silent=True)
+        body = request.get_json(silent=True) or {}
+        simulation_uuid = (
+            request.headers.get("X-Simulation-UUID")
+            or body.get("simulation_uuid")
+        )
         entry = ReservaEvent(
             method=request.method,
             path=request.path,
             x_auth_token=request.headers.get("X-Auth-Token"),
+            simulation_uuid=simulation_uuid,
             headers_json=json.dumps(dict(request.headers)),
             query_json=json.dumps(request.args.to_dict(flat=False)),
-            body_json=json.dumps(body if body is not None else {}),
+            body_json=json.dumps(body),
             received_at=datetime.now(timezone.utc),
         )
         session.add(entry)

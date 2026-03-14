@@ -37,34 +37,38 @@ var mapGeoRandom = map[string]models.Metadata{
 func (e *GeoAnomalyEvent) Proccess(ctx context.Context, simulationID string, user models.User) error {
 	// Simulate different IP addresses for each attempt
 	for _, item := range mapGeoRandom {
+		item.SimulationUUID = simulationID
 		_, err := external_service.Login(ctx, user, item)
 		if err != nil {
 			if err.Error() == "geo anomaly detected" {
 				external_service.SaveAuditEvent(models.AuditEvent{
-					SimulationID:  simulationID,
-					UserID:        user.User,
-					ProcessorType: "geo_anomaly",
-					EventType:     models.EventTypeGeoAnomaly,
-					Status:        models.StatusBlocked,
-					ErrorMessage:  err.Error(),
+					SimulationID:   simulationID,
+					SimulationUUID: simulationID,
+					UserID:         user.User,
+					ProcessorType:  "geo_anomaly",
+					EventType:      models.EventTypeGeoAnomaly,
+					Status:         models.StatusBlocked,
+					ErrorMessage:   err.Error(),
 				})
 				break
 			}
 			external_service.SaveAuditEvent(models.AuditEvent{
-				SimulationID:  simulationID,
-				UserID:        user.User,
-				ProcessorType: "geo_anomaly",
-				EventType:     models.EventTypeLogin,
-				Status:        models.StatusError,
-				ErrorMessage:  err.Error(),
+				SimulationID:   simulationID,
+				SimulationUUID: simulationID,
+				UserID:         user.User,
+				ProcessorType:  "geo_anomaly",
+				EventType:      models.EventTypeLogin,
+				Status:         models.StatusError,
+				ErrorMessage:   err.Error(),
 			})
 		} else {
 			external_service.SaveAuditEvent(models.AuditEvent{
-				SimulationID:  simulationID,
-				UserID:        user.User,
-				ProcessorType: "geo_anomaly",
-				EventType:     models.EventTypeLogin,
-				Status:        models.StatusSuccess,
+				SimulationID:   simulationID,
+				SimulationUUID: simulationID,
+				UserID:         user.User,
+				ProcessorType:  "geo_anomaly",
+				EventType:      models.EventTypeLogin,
+				Status:         models.StatusSuccess,
 			})
 		}
 	}

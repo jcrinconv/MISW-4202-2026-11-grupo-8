@@ -27,25 +27,28 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 	ctxTimeout, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
-	token, err := external_service.Login(ctxTimeout, user, models.Metadata{})
+	metadata := models.Metadata{SimulationUUID: simulationID}
+	token, err := external_service.Login(ctxTimeout, user, metadata)
 	if err != nil {
 		external_service.SaveAuditEvent(models.AuditEvent{
-			SimulationID:  simulationID,
-			UserID:        user.User,
-			ProcessorType: "normal_user",
-			EventType:     models.EventTypeLogin,
-			Status:        models.StatusError,
-			ErrorMessage:  err.Error(),
+			SimulationID:   simulationID,
+			SimulationUUID: simulationID,
+			UserID:         user.User,
+			ProcessorType:  "normal_user",
+			EventType:      models.EventTypeLogin,
+			Status:         models.StatusError,
+			ErrorMessage:   err.Error(),
 		})
 		return err
 	}
 
 	external_service.SaveAuditEvent(models.AuditEvent{
-		SimulationID:  simulationID,
-		UserID:        user.User,
-		ProcessorType: "normal_user",
-		EventType:     models.EventTypeLogin,
-		Status:        models.StatusSuccess,
+		SimulationID:   simulationID,
+		SimulationUUID: simulationID,
+		UserID:         user.User,
+		ProcessorType:  "normal_user",
+		EventType:      models.EventTypeLogin,
+		Status:         models.StatusSuccess,
 	})
 
 	interval := time.Minute / 3
@@ -58,10 +61,11 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 			return ctxTimeout.Err()
 		case <-ticker.C:
 			payload := map[string]interface{}{
-				"origen":    "BOG",
-				"destino":   "MDE",
-				"fecha":     "2026-03-15",
-				"pasajeros": 1,
+				"origen":          "BOG",
+				"destino":         "MDE",
+				"fecha":           "2026-03-15",
+				"pasajeros":       1,
+				"simulation_uuid": simulationID,
 			}
 			bodyBytes, err := json.Marshal(payload)
 			if err != nil {
@@ -73,6 +77,7 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 				return err
 			}
 			req.Header.Set("X-Auth-Token", token)
+			req.Header.Set("X-Simulation-UUID", simulationID)
 			req.Header.Set("Content-Type", "application/json")
 
 			resp, err := e.client.Do(req)
@@ -82,11 +87,12 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 
 			if resp.StatusCode < http.StatusBadRequest {
 				external_service.SaveAuditEvent(models.AuditEvent{
-					SimulationID:  simulationID,
-					UserID:        user.User,
-					ProcessorType: "normal_user",
-					EventType:     models.EventTypeRequest,
-					Status:        models.StatusSuccess,
+					SimulationID:   simulationID,
+					SimulationUUID: simulationID,
+					UserID:         user.User,
+					ProcessorType:  "normal_user",
+					EventType:      models.EventTypeRequest,
+					Status:         models.StatusSuccess,
 				})
 			}
 

@@ -73,6 +73,7 @@ class BaseRule:
             occurred_at=event.occurred_at,
             detected_at=detected_at,
             latency_ms=latency_ms,
+            simulation_uuid=event.simulation_uuid,
             metadata=event.metadata or {},
             recent_events=[h.as_dict() for h in history],
         )

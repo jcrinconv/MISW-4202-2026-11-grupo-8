@@ -52,6 +52,7 @@ func InitAuditTable() error {
 	CREATE TABLE IF NOT EXISTS audit_events (
 		id INT AUTO_INCREMENT PRIMARY KEY,
 		simulation_id VARCHAR(36) NOT NULL,
+		simulation_uuid VARCHAR(36) NOT NULL,
 		user_id VARCHAR(50) NOT NULL,
 		processor_type VARCHAR(50) NOT NULL,
 		event_type VARCHAR(50) NOT NULL,
@@ -59,6 +60,7 @@ func InitAuditTable() error {
 		error_message TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		INDEX idx_simulation_id (simulation_id),
+		INDEX idx_simulation_uuid (simulation_uuid),
 		INDEX idx_user_id (user_id),
 		INDEX idx_created_at (created_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

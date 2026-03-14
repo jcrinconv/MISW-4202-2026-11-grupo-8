@@ -32,6 +32,7 @@ class AuthEventRecord(_EventsBase):
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     auth_token: Mapped[str | None] = mapped_column(String(256), nullable=True)
     auth_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    simulation_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -52,6 +53,7 @@ class AnomalyRecord(_AnomaliesBase):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     latency_ms: Mapped[int] = mapped_column(Integer)
+    simulation_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     recent_events: Mapped[list | None] = mapped_column(JSON, nullable=True)
     notification_success: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -110,6 +112,7 @@ class Storage:
             metadata_json=event.metadata,
             auth_token=event.auth_token,
             auth_id=event.auth_id,
+            simulation_uuid=event.simulation_uuid,
             occurred_at=event.occurred_at,
             received_at=processed.received_at,
             processed_at=processed.processed_at,
@@ -149,6 +152,7 @@ class Storage:
                     occurred_at=decision.occurred_at,
                     detected_at=decision.detected_at,
                     latency_ms=decision.latency_ms,
+                    simulation_uuid=decision.simulation_uuid,
                     metadata_json=decision.metadata,
                     recent_events=decision.recent_events,
                     notification_success=notification.success,

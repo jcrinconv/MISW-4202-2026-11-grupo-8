@@ -3,13 +3,14 @@ package models
 import "time"
 
 type AuditEvent struct {
-	SimulationID  string
-	UserID        string
-	ProcessorType string
-	EventType     string
-	Status        string
-	ErrorMessage  string
-	CreatedAt     time.Time
+	SimulationID   string
+	SimulationUUID string
+	UserID         string
+	ProcessorType  string
+	EventType      string
+	Status         string
+	ErrorMessage   string
+	CreatedAt      time.Time
 }
 
 const (

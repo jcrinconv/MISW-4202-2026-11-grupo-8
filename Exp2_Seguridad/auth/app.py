@@ -42,6 +42,7 @@ class AuthAudit(Base):
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     auth_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    simulation_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -116,7 +117,7 @@ def extract_token() -> str | None:
     return None
 
 
-def record_audit(user: str | None, activity: str, status: str, detail: str | None = None, metadata: dict | None = None, auth_id: str | None = None) -> None:
+def record_audit(user: str | None, activity: str, status: str, detail: str | None = None, metadata: dict | None = None, auth_id: str | None = None, simulation_uuid: str | None = None) -> None:
     session = get_session()
     try:
         entry = AuthAudit(
@@ -126,6 +127,7 @@ def record_audit(user: str | None, activity: str, status: str, detail: str | Non
             detail=detail,
             metadata_json=json.dumps(metadata or {}),
             auth_id=auth_id,
+            simulation_uuid=simulation_uuid,
             occurred_at=now_utc(),
         )
         session.add(entry)
@@ -134,7 +136,7 @@ def record_audit(user: str | None, activity: str, status: str, detail: str | Non
         session.close()
 
 
-def publish_event(user: str, activity: str, status: str, detail: str, metadata: dict | None = None, auth_token: str | None = None, auth_id: str | None = None) -> None:
+def publish_event(user: str, activity: str, status: str, detail: str, metadata: dict | None = None, auth_token: str | None = None, auth_id: str | None = None, simulation_uuid: str | None = None) -> None:
     if redis_client is None:
         return
     payload = {
@@ -145,6 +147,7 @@ def publish_event(user: str, activity: str, status: str, detail: str, metadata: 
         "metadata": metadata or {},
         "auth_token": auth_token,
         "auth_id": auth_id,
+        "simulation_uuid": simulation_uuid,
         "occurred_at": now_utc().isoformat(),
     }
     try:
@@ -243,27 +246,28 @@ class Login(Resource):
         username = str(body.get("user", "")).strip()
         password = str(body.get("pass", ""))
         metadata = get_client_metadata(body)
+        simulation_uuid = metadata.get("simulation_uuid")
 
         if not username or not password:
-            record_audit(username or None, "login", "FAILED", "Credenciales incompletas", metadata)
-            publish_event(username or "unknown", "login", "FAILED", "missing_credentials", metadata)
+            record_audit(username or None, "login", "FAILED", "Credenciales incompletas", metadata, simulation_uuid=simulation_uuid)
+            publish_event(username or "unknown", "login", "FAILED", "missing_credentials", metadata, simulation_uuid=simulation_uuid)
             return {"message": "Debe enviar user y pass"}, 400
 
         session = get_session()
         try:
             user = session.scalar(select(User).where(User.username == username))
             if user is None or not check_password_hash(user.password_hash, password):
-                record_audit(username, "login", "FAILED", "Credenciales inválidas", metadata)
-                publish_event(username, "login", "FAILED", "invalid_credentials", metadata)
+                record_audit(username, "login", "FAILED", "Credenciales inválidas", metadata, simulation_uuid=simulation_uuid)
+                publish_event(username, "login", "FAILED", "invalid_credentials", metadata, simulation_uuid=simulation_uuid)
                 return {"message": "Credenciales inválidas"}, 401
             if user.is_blocked:
-                record_audit(username, "login", "DENIED", user.blocked_reason or "Usuario bloqueado", metadata)
-                publish_event(username, "login", "DENIED", user.blocked_reason or "blocked_user", metadata)
+                record_audit(username, "login", "DENIED", user.blocked_reason or "Usuario bloqueado", metadata, simulation_uuid=simulation_uuid)
+                publish_event(username, "login", "DENIED", user.blocked_reason or "blocked_user", metadata, simulation_uuid=simulation_uuid)
                 return {"message": "Usuario bloqueado", "reason": user.blocked_reason}, 403
 
             token, auth_id = issue_token(user)
-            record_audit(username, "login", "SUCCESS", "Autenticación exitosa", metadata, auth_id)
-            publish_event(username, "login", "SUCCESS", "login_success", metadata, token, auth_id)
+            record_audit(username, "login", "SUCCESS", "Autenticación exitosa", metadata, auth_id, simulation_uuid=simulation_uuid)
+            publish_event(username, "login", "SUCCESS", "login_success", metadata, token, auth_id, simulation_uuid=simulation_uuid)
             return {
                 "message": "Inicio de sesión exitoso",
                 "token": token,
@@ -280,10 +284,11 @@ class Validate(Resource):
         body = get_json_body()
         token = extract_token()
         metadata = get_client_metadata(body)
+        simulation_uuid = metadata.get("simulation_uuid") or request.headers.get("X-Simulation-UUID")
 
         if not token:
-            record_audit(None, "validate", "FAILED", "Token faltante", metadata)
-            publish_event("unknown", "validate", "FAILED", "missing_token", metadata)
+            record_audit(None, "validate", "FAILED", "Token faltante", metadata, simulation_uuid=simulation_uuid)
+            publish_event("unknown", "validate", "FAILED", "missing_token", metadata, simulation_uuid=simulation_uuid)
             return {"message": "Token faltante", "valid": False, "reason": "missing_token"}, 400
 
         user, payload, error = validate_token_value(token)
@@ -295,12 +300,12 @@ class Validate(Resource):
                 event_user = decoded_unverified.get("user", "unknown")
             except Exception:
                 event_user = "unknown"
-            record_audit(event_user, "validate", error_body.get("reason", "FAILED").upper(), error_body.get("message"), metadata)
-            publish_event(event_user, "validate", error_body.get("reason", "FAILED").upper(), error_body.get("message", "validate_error"), metadata, token)
+            record_audit(event_user, "validate", error_body.get("reason", "FAILED").upper(), error_body.get("message"), metadata, simulation_uuid=simulation_uuid)
+            publish_event(event_user, "validate", error_body.get("reason", "FAILED").upper(), error_body.get("message", "validate_error"), metadata, token, simulation_uuid=simulation_uuid)
             return error_body, status_code
 
-        record_audit(user["username"], "validate", "SUCCESS", "Token válido", metadata, payload.get("jti"))
-        publish_event(user["username"], "validate", "SUCCESS", "token_valid", metadata, token, payload.get("jti"))
+        record_audit(user["username"], "validate", "SUCCESS", "Token válido", metadata, payload.get("jti"), simulation_uuid=simulation_uuid)
+        publish_event(user["username"], "validate", "SUCCESS", "token_valid", metadata, token, payload.get("jti"), simulation_uuid=simulation_uuid)
         return {
             "valid": True,
             "message": "Token válido",
@@ -319,6 +324,7 @@ class BlockUser(Resource):
         metadata["severity"] = body.get("severity")
         metadata["activity"] = body.get("activity")
         metadata["detected_at"] = body.get("detected_at")
+        simulation_uuid = body.get("simulation_uuid") or metadata.get("simulation_uuid")
 
         if not username:
             return {"message": "Debe enviar user"}, 400
@@ -327,8 +333,8 @@ class BlockUser(Resource):
         try:
             user = session.scalar(select(User).where(User.username == username))
             if user is None:
-                record_audit(username, "block-user", "FAILED", "Usuario no encontrado", metadata)
-                publish_event(username, "block-user", "FAILED", "user_not_found", metadata)
+                record_audit(username, "block-user", "FAILED", "Usuario no encontrado", metadata, simulation_uuid=simulation_uuid)
+                publish_event(username, "block-user", "FAILED", "user_not_found", metadata, simulation_uuid=simulation_uuid)
                 return {"message": "Usuario no encontrado"}, 404
 
             if not user.is_blocked:
@@ -338,8 +344,8 @@ class BlockUser(Resource):
                 user.blocked_at = now_utc()
                 session.add(user)
                 session.commit()
-                record_audit(username, "block-user", "SUCCESS", reason, metadata)
-                publish_event(username, "block-user", "SUCCESS", reason, metadata)
+                record_audit(username, "block-user", "SUCCESS", reason, metadata, simulation_uuid=simulation_uuid)
+                publish_event(username, "block-user", "SUCCESS", reason, metadata, simulation_uuid=simulation_uuid)
                 return {
                     "message": "Usuario bloqueado",
                     "user": username,
@@ -347,8 +353,8 @@ class BlockUser(Resource):
                     "token_version": user.token_version,
                 }, 200
 
-            record_audit(username, "block-user", "SUCCESS", user.blocked_reason or reason, metadata)
-            publish_event(username, "block-user", "SUCCESS", user.blocked_reason or reason, metadata)
+            record_audit(username, "block-user", "SUCCESS", user.blocked_reason or reason, metadata, simulation_uuid=simulation_uuid)
+            publish_event(username, "block-user", "SUCCESS", user.blocked_reason or reason, metadata, simulation_uuid=simulation_uuid)
             return {
                 "message": "Usuario ya estaba bloqueado",
                 "user": username,

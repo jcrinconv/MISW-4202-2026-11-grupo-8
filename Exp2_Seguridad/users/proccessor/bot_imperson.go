@@ -31,25 +31,28 @@ func NewBotImpersonEvent(client *http.Client) IBotImpersonEvent {
 func (e *BotImpersonEvent) Proccess(ctx context.Context, simulationID string, user models.User) error {
 	user.Password = "wrongpassword"
 
-	token, err := external_service.Login(ctx, user, models.Metadata{})
+	metadata := models.Metadata{SimulationUUID: simulationID}
+	token, err := external_service.Login(ctx, user, metadata)
 	if err != nil {
 		external_service.SaveAuditEvent(models.AuditEvent{
-			SimulationID:  simulationID,
-			UserID:        user.User,
-			ProcessorType: "bot_imperson",
-			EventType:     models.EventTypeLogin,
-			Status:        models.StatusError,
-			ErrorMessage:  err.Error(),
+			SimulationID:   simulationID,
+			SimulationUUID: simulationID,
+			UserID:         user.User,
+			ProcessorType:  "bot_imperson",
+			EventType:      models.EventTypeLogin,
+			Status:         models.StatusError,
+			ErrorMessage:   err.Error(),
 		})
 		return err
 	}
 
 	external_service.SaveAuditEvent(models.AuditEvent{
-		SimulationID:  simulationID,
-		UserID:        user.User,
-		ProcessorType: "bot_imperson",
-		EventType:     models.EventTypeLogin,
-		Status:        models.StatusSuccess,
+		SimulationID:   simulationID,
+		SimulationUUID: simulationID,
+		UserID:         user.User,
+		ProcessorType:  "bot_imperson",
+		EventType:      models.EventTypeLogin,
+		Status:         models.StatusSuccess,
 	})
 
 	ctxTimeout, cancel := context.WithTimeout(ctx, time.Minute)
@@ -83,17 +86,19 @@ func (e *BotImpersonEvent) simulateActivityReservas(ctx context.Context, simulat
 				return
 			}
 			req.Header.Set("X-Auth-Token", token)
+			req.Header.Set("X-Simulation-UUID", simulationID)
 
 			resp, err := e.client.Do(req)
 			if err != nil {
 				if err.Error() == "user blocked" {
 					external_service.SaveAuditEvent(models.AuditEvent{
-						SimulationID:  simulationID,
-						UserID:        userID,
-						ProcessorType: "bot_imperson",
-						EventType:     models.EventTypeUserBlocked,
-						Status:        models.StatusBlocked,
-						ErrorMessage:  err.Error(),
+						SimulationID:   simulationID,
+						SimulationUUID: simulationID,
+						UserID:         userID,
+						ProcessorType:  "bot_imperson",
+						EventType:      models.EventTypeUserBlocked,
+						Status:         models.StatusBlocked,
+						ErrorMessage:   err.Error(),
 					})
 					errCh <- err
 					cancel()
@@ -107,11 +112,12 @@ func (e *BotImpersonEvent) simulateActivityReservas(ctx context.Context, simulat
 				log.Printf("bot imperson request status: %s", resp.Status)
 			} else {
 				external_service.SaveAuditEvent(models.AuditEvent{
-					SimulationID:  simulationID,
-					UserID:        userID,
-					ProcessorType: "bot_imperson",
-					EventType:     models.EventTypeRequest,
-					Status:        models.StatusSuccess,
+					SimulationID:   simulationID,
+					SimulationUUID: simulationID,
+					UserID:         userID,
+					ProcessorType:  "bot_imperson",
+					EventType:      models.EventTypeRequest,
+					Status:         models.StatusSuccess,
 				})
 			}
 			resp.Body.Close()

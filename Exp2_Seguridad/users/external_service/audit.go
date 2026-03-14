@@ -19,12 +19,13 @@ func SaveAuditEvent(event models.AuditEvent) error {
 
 	query := `
 		INSERT INTO audit_events 
-		(simulation_id, user_id, processor_type, event_type, status, error_message, created_at) 
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		(simulation_id, simulation_uuid, user_id, processor_type, event_type, status, error_message, created_at) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = db.Exec(query,
 		event.SimulationID,
+		event.SimulationUUID,
 		event.UserID,
 		event.ProcessorType,
 		event.EventType,

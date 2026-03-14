@@ -10,9 +10,10 @@ type User struct {
 }
 
 type Metadata struct {
-	IP       string `json:"ip"`
-	DeviceID string `json:"device_id"`
-	Geo      string `json:"geo"`
+	IP             string `json:"ip"`
+	DeviceID       string `json:"device_id"`
+	Geo            string `json:"geo"`
+	SimulationUUID string `json:"simulation_uuid"`
 }
 
 var Users = map[string]User{
