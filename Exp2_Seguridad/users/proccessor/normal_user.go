@@ -3,7 +3,9 @@ package proccessor
 import (
 	"Exp2_Seguridad/users/external_service"
 	"Exp2_Seguridad/users/models"
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 )
@@ -55,11 +57,23 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 		case <-ctxTimeout.Done():
 			return ctxTimeout.Err()
 		case <-ticker.C:
-			req, err := http.NewRequestWithContext(ctxTimeout, http.MethodPost, gatewayURL+"/reservas", nil)
+			payload := map[string]interface{}{
+				"origen":    "BOG",
+				"destino":   "MDE",
+				"fecha":     "2026-03-15",
+				"pasajeros": 1,
+			}
+			bodyBytes, err := json.Marshal(payload)
+			if err != nil {
+				return err
+			}
+
+			req, err := http.NewRequestWithContext(ctxTimeout, http.MethodPost, gatewayURL+"/reservas", bytes.NewBuffer(bodyBytes))
 			if err != nil {
 				return err
 			}
 			req.Header.Set("X-Auth-Token", token)
+			req.Header.Set("Content-Type", "application/json")
 
 			resp, err := e.client.Do(req)
 			if err != nil {
