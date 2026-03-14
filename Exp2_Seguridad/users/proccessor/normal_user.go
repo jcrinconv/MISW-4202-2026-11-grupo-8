@@ -59,7 +59,7 @@ func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, use
 			if err != nil {
 				return err
 			}
-			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("X-Auth-Token", token)
 
 			resp, err := e.client.Do(req)
 			if err != nil {

@@ -82,7 +82,7 @@ func (e *BotImpersonEvent) simulateActivityReservas(ctx context.Context, simulat
 				cancel()
 				return
 			}
-			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("X-Auth-Token", token)
 
 			resp, err := e.client.Do(req)
 			if err != nil {
