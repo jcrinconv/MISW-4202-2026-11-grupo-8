@@ -1,0 +1,84 @@
+package proccessor
+
+import (
+	"Exp2_Seguridad/users/external_service"
+	"Exp2_Seguridad/users/models"
+	"context"
+	"net/http"
+	"time"
+)
+
+type INormalUserEvent interface {
+	Proccess(ctx context.Context, simulationID string, user models.User) error
+}
+
+type NormalUserEvent struct {
+	client *http.Client
+}
+
+func NewNormalUserEvent(client *http.Client) INormalUserEvent {
+	return &NormalUserEvent{client: client}
+}
+
+// Proccess simula un usuario normal: login y 3 requests dentro de 1 minuto.
+func (e *NormalUserEvent) Proccess(ctx context.Context, simulationID string, user models.User) error {
+	ctxTimeout, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	token, err := external_service.Login(ctxTimeout, user, models.Metadata{})
+	if err != nil {
+		external_service.SaveAuditEvent(models.AuditEvent{
+			SimulationID:  simulationID,
+			UserID:        user.User,
+			ProcessorType: "normal_user",
+			EventType:     models.EventTypeLogin,
+			Status:        models.StatusError,
+			ErrorMessage:  err.Error(),
+		})
+		return err
+	}
+
+	external_service.SaveAuditEvent(models.AuditEvent{
+		SimulationID:  simulationID,
+		UserID:        user.User,
+		ProcessorType: "normal_user",
+		EventType:     models.EventTypeLogin,
+		Status:        models.StatusSuccess,
+	})
+
+	interval := time.Minute / 3
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for i := 0; i < 3; i++ {
+		select {
+		case <-ctxTimeout.Done():
+			return ctxTimeout.Err()
+		case <-ticker.C:
+			req, err := http.NewRequestWithContext(ctxTimeout, http.MethodPost, gatewayURL+"/reservas", nil)
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+
+			resp, err := e.client.Do(req)
+			if err != nil {
+				return err
+			}
+
+			if resp.StatusCode < http.StatusBadRequest {
+				external_service.SaveAuditEvent(models.AuditEvent{
+					SimulationID:  simulationID,
+					UserID:        user.User,
+					ProcessorType: "normal_user",
+					EventType:     models.EventTypeRequest,
+					Status:        models.StatusSuccess,
+				})
+			}
+
+			resp.Body.Close()
+		}
+	}
+
+	return nil
+}

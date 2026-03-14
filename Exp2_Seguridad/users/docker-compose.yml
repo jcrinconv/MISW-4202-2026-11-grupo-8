@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: security-audit-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_DATABASE: security_audit
+      MYSQL_USER: audit_user
+      MYSQL_PASSWORD: secure_audit_pass_2024
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-network
+
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: security-simulator
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      GATEWAY_URL: ${GATEWAY_URL:-http://host.docker.internal:8080}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: audit_user
+      DB_PASSWORD: secure_audit_pass_2024
+      DB_NAME: security_audit
+      PORT: 8081
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - security-network
+
+networks:
+  security-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
