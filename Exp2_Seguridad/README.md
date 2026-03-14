@@ -146,20 +146,19 @@ WHERE simulation_uuid IS NOT NULL
 GROUP BY simulation_uuid, processor_type
 ORDER BY started_at DESC;
 
--- ECASE
-        WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
-        ELSE 'running'
-    END AS simulation_status,
-    ventos agrupados por simulación y tipo de simulación
+-- Eventos agrupados por simulación y tipo de simulación
 SELECT 
     simulation_uuid,
     processor_type AS simulation_type,
+    CASE
+        WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
+        ELSE 'running'
+    END AS simulation_status,
     event_type,
     status,
     COUNT(*) AS total
 FROM audit_events
-WHERsimulation_status,
-    E simulation_uuid IS NOT NULL
+WHERE simulation_uuid IS NOT NULL
 GROUP BY simulation_uuid, processor_type, event_type, status
 ORDER BY simulation_uuid, processor_type;
 
@@ -167,6 +166,7 @@ ORDER BY simulation_uuid, processor_type;
 SELECT 
     simulation_uuid,
     processor_type AS simulation_type,
+    simulation_status,
     created_at,
     user_id,
     event_type,
@@ -177,7 +177,22 @@ ORDER BY created_at DESC
 LIMIT 50;
 ```
 
-### 2. SQLite - Auth Service
+### 2. SQLite - Auth Anomaly (auth_events.db y auth_anomalies.db)
+
+```bash
+# Conectar al contenedor y abrir la base de eventos
+docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/auth_events.db
+
+# Últimos eventos procesados (auth_events)
+docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/auth_events.db \
+  "SELECT user, activity, status, simulation_uuid, processing_time_ms, received_at FROM auth_events ORDER BY received_at DESC LIMIT 10;"
+
+# Últimas anomalías detectadas
+docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/auth_anomalies.db \
+  "SELECT user, rule, severity, latency_ms, simulation_uuid, detected_at FROM auth_anomalies ORDER BY detected_at DESC LIMIT 10;"
+```
+
+### 3. SQLite - Auth Service
 
 ```bash
 # Acceder al contenedor de auth

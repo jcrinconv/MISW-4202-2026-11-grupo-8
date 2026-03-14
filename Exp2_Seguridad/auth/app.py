@@ -89,6 +89,9 @@ def get_json_body() -> dict:
 def get_client_ip(body: dict | None = None) -> str:
     if body and isinstance(body.get("metadata"), dict) and body["metadata"].get("ip"):
         return str(body["metadata"]["ip"])
+    header_ip = request.headers.get("X-Client-IP", "")
+    if header_ip:
+        return header_ip.split(",")[0].strip()
     forwarded = request.headers.get("X-Forwarded-For", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -99,6 +102,18 @@ def get_client_metadata(body: dict | None = None) -> dict:
     metadata = {}
     if body and isinstance(body.get("metadata"), dict):
         metadata.update(body["metadata"])
+    header_geo = request.headers.get("X-Geo")
+    header_device = request.headers.get("X-Device-Id")
+    header_ip = request.headers.get("X-Client-IP")
+    simulation_header = request.headers.get("X-Simulation-UUID")
+    if header_geo and not metadata.get("geo"):
+        metadata["geo"] = header_geo
+    if header_device and not metadata.get("device_id"):
+        metadata["device_id"] = header_device
+    if header_ip and not metadata.get("ip"):
+        metadata["ip"] = header_ip
+    if simulation_header and not metadata.get("simulation_uuid"):
+        metadata["simulation_uuid"] = simulation_header
     metadata.setdefault("ip", get_client_ip(body))
     metadata.setdefault("user_agent", request.headers.get("User-Agent", "unknown"))
     return metadata

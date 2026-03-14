@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     event_type VARCHAR(50) NOT NULL COMMENT 'Tipo de evento (login, request, user_blocked, etc.)',
     status VARCHAR(20) NOT NULL COMMENT 'Estado del evento (success, error, blocked)',
     error_message TEXT COMMENT 'Mensaje de error si aplica',
+    detail_json TEXT COMMENT 'Detalle JSON del evento (opcional)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Timestamp del evento',
     INDEX idx_simulation_id (simulation_id),
     INDEX idx_simulation_uuid (simulation_uuid),

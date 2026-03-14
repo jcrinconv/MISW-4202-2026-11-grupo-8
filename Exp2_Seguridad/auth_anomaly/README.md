@@ -106,7 +106,10 @@ Con esto puedes demostrar que cada detección tardó < 2000 ms y que la notifica
 ## Escenarios de prueba recomendados
 
 - **Fuerza bruta (fallos)**: enviar 3 `login` fallidos para un mismo usuario y observar la regla `repeated_failures`.
-- **Multi-IP**: simular fallos desde IPs distintas enviando la IP en el campo `metadata.ip`. Ejemplo de payload para cada evento:
+- **Multi-IP**: simular fallos desde IPs distintas enviando la IP en el campo `metadata.ip`.
+  También puedes enviar la metadata vía headers (el autenticador la fusiona en el payload):
+  `X-Client-IP`, `X-Geo`, `X-Device-Id`, `X-Simulation-UUID`.
+  Ejemplo de payload para cada evento:
   ```json
   {
     "user": "bob",
