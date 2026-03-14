@@ -53,7 +53,7 @@ JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 REDIS_URL = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://redis:6379/0"))
 STREAM_NAME = os.getenv("STREAM_NAME", "reports")
 PORT = int(os.getenv("PORT", "8080"))
-SEED_USERS = os.getenv("AUTH_SEED_USERS", "alice:alice123:user,bob:bob123:user,admin:admin123:admin")
+SEED_USERS = os.getenv("AUTH_SEED_USERS", "user1:user1:user,user2:user2:user,user3:user3:user,user4:user4:user,user5:user5:user")
 
 connect_args = {"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
 engine = create_engine(DB_URL, future=True, connect_args=connect_args)
