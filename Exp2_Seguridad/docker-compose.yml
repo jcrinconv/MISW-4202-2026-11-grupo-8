@@ -41,8 +41,15 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - STREAM_NAME=reports
+      - AUTH_DB_HOST=mysql
+      - AUTH_DB_PORT=3306
+      - AUTH_DB_NAME=security_audit
+      - AUTH_DB_USER=audit_user
+      - AUTH_DB_PASSWORD=secure_audit_pass_2024
     depends_on:
       redis:
+        condition: service_healthy
+      mysql:
         condition: service_healthy
 
   api-gateway:
@@ -68,13 +75,20 @@ services:
     restart: unless-stopped
     environment:
       - AUTH_SERVICE_BASE_URL=http://auth:8080
-      - AUTH_DATA_DIR=/data
+      - AUTH_DB_HOST=mysql
+      - AUTH_DB_PORT=3306
+      - AUTH_DB_NAME=security_audit
+      - AUTH_DB_USER=audit_user
+      - AUTH_DB_PASSWORD=secure_audit_pass_2024
+      - AUTH_EVENTS_DB_URL=mysql+pymysql://audit_user:secure_audit_pass_2024@mysql:3306/security_audit
+      - AUTH_ANOMALIES_DB_URL=mysql+pymysql://audit_user:secure_audit_pass_2024@mysql:3306/security_audit
     volumes:
       - auth_anomaly_data:/data
     ports:
       - "6005:6005"
     depends_on:
       - auth
+      - mysql
 
   auth-queue:
     build:

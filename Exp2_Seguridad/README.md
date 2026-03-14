@@ -177,26 +177,34 @@ ORDER BY created_at DESC
 LIMIT 50;
 ```
 
-### 2. SQLite - Auth Anomaly (auth_events.db y auth_anomalies.db)
+### 2. MySQL - Auth Anomaly (auth_anomaly_events y auth_anomaly_anomalies)
 
 ```bash
-# Conectar al contenedor y abrir la base de eventos
-docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/auth_events.db
-
-# Últimos eventos procesados (auth_events)
-docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/auth_events.db \
-  "SELECT user, activity, status, simulation_uuid, processing_time_ms, received_at FROM auth_events ORDER BY received_at DESC LIMIT 10;"
-
-# Últimas anomalías detectadas
-docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/auth_anomalies.db \
-  "SELECT user, rule, severity, latency_ms, simulation_uuid, detected_at FROM auth_anomalies ORDER BY detected_at DESC LIMIT 10;"
+# Conectar a MySQL
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit
 ```
 
-### 3. SQLite - Auth Service
+**Consultas útiles:**
+
+```sql
+-- Últimos eventos procesados (auth_anomaly_events)
+SELECT user, activity, status, simulation_uuid, processing_time_ms, received_at
+FROM auth_anomaly_events
+ORDER BY received_at DESC
+LIMIT 10;
+
+-- Últimas anomalías detectadas (auth_anomaly_anomalies)
+SELECT user, rule, severity, latency_ms, simulation_uuid, detected_at
+FROM auth_anomaly_anomalies
+ORDER BY detected_at DESC
+LIMIT 10;
+```
+
+### 3. MySQL - Auth Service (auth_audit)
 
 ```bash
-# Acceder al contenedor de auth
-docker exec -it exp2_seguridad-auth-1 sqlite3 auth.db
+# Conectar a MySQL
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit
 ```
 
 **Consultas útiles:**
@@ -220,7 +228,7 @@ WHERE activity = 'block-user'
 ORDER BY occurred_at DESC;
 ```
 
-### 3. SQLite - Reservas Service
+### 4. SQLite - Reservas Service
 
 ```bash
 # Acceder al contenedor de reservas
@@ -242,7 +250,7 @@ FROM reserva_events
 GROUP BY simulation_uuid;
 ```
 
-### 4. SQLite - Auth Anomaly Service
+### 5. SQLite - Auth Anomaly Service
 
 ```bash
 # Acceder al contenedor de auth-anomaly

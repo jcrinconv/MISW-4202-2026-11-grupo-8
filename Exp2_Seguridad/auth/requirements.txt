@@ -2,6 +2,8 @@ Flask==3.1.2
 Flask-Cors==5.0.0
 Flask-RESTful==0.3.10
 PyJWT==2.10.1
+PyMySQL==1.1.1
+cryptography>=42.0.0
 redis==5.2.1
 SQLAlchemy==2.0.38
 Werkzeug==3.1.3

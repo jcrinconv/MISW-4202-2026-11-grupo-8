@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote_plus
 
 import jwt
 import redis
@@ -47,7 +48,16 @@ class AuthAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
-DB_URL = os.getenv("AUTH_DB_URL", "sqlite:///auth.db")
+def build_mysql_url() -> str:
+    user = os.getenv("AUTH_DB_USER", "audit_user")
+    password = quote_plus(os.getenv("AUTH_DB_PASSWORD", "secure_audit_pass_2024"))
+    host = os.getenv("AUTH_DB_HOST", "mysql")
+    port = os.getenv("AUTH_DB_PORT", "3306")
+    database = os.getenv("AUTH_DB_NAME", "security_audit")
+    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
+
+
+DB_URL = os.getenv("AUTH_DB_URL") or build_mysql_url()
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))

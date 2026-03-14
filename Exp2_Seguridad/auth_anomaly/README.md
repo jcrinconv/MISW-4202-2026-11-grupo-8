@@ -48,16 +48,20 @@ Queue/API → AuthAnomaly (/auth-event) → Auth (/block-user)
 | `AUTH_SERVICE_BASE_URL` | URL base del componente Auth | `http://auth:5000` |
 | `AUTH_BLOCK_ENDPOINT` | Ruta relativa para bloquear usuarios | `/block-user` |
 | `AUTH_NOTIFY_ENABLED` | Habilita/inhabilita notificación real | `true` |
+| `AUTH_DB_HOST` | Host de MySQL | `mysql` |
+| `AUTH_DB_PORT` | Puerto de MySQL | `3306` |
+| `AUTH_DB_NAME` | Base de datos | `security_audit` |
+| `AUTH_DB_USER` | Usuario de MySQL | `audit_user` |
+| `AUTH_DB_PASSWORD` | Password de MySQL | `secure_audit_pass_2024` |
+| `AUTH_EVENTS_DB_URL` | URL SQLAlchemy para la BD de eventos | `mysql+pymysql://audit_user:***@mysql:3306/security_audit` |
+| `AUTH_ANOMALIES_DB_URL` | URL SQLAlchemy para la BD de anomalías | `mysql+pymysql://audit_user:***@mysql:3306/security_audit` |
+| `AUTH_CREATE_SCHEMA_ON_STARTUP` | Crear tablas automáticamente al iniciar | `true` |
 | `AUTH_FAILURE_THRESHOLD` | Fallos consecutivos para disparar alerta | `3` |
 | `AUTH_FAILURE_WINDOW_SECONDS` | Ventana para la regla de fallos | `60` |
 | `AUTH_MULTI_IP_THRESHOLD` | Cantidad de IPs únicas para alertar | `3` |
 | `AUTH_MULTI_IP_WINDOW_SECONDS` | Ventana para multi IP | `90` |
 | `AUTH_TOKEN_REPLAY_TTL_SECONDS` | TTL para detectar reutilización de token | `180` |
 | `AUTH_DETECTION_SLA_MS` | SLA máximo aceptado | `2000` |
-| `AUTH_DATA_DIR` | Carpeta donde se guardan las BD SQLite por defecto | `<repo>/auth_anomaly_data` |
-| `AUTH_EVENTS_DB_URL` | URL SQLAlchemy para la BD de eventos | `sqlite:///<AUTH_DATA_DIR>/auth_events.db` |
-| `AUTH_ANOMALIES_DB_URL` | URL SQLAlchemy para la BD de anomalías | `sqlite:///<AUTH_DATA_DIR>/auth_anomalies.db` |
-| `AUTH_CREATE_SCHEMA_ON_STARTUP` | Crear tablas automáticamente al iniciar | `true` |
 | `AUTH_RATELIMIT_THRESHOLD` | Cantidad máxima de requests permitidos en la ventana | `30` |
 | `AUTH_RATELIMIT_WINDOW_SECONDS` | Ventana temporal para RateLimitRule | `60` |
 | `AUTH_RATELIMIT_ACTIVITIES` | Lista separada por comas de actividades a vigilar | `validate` |
@@ -87,18 +91,18 @@ AuthAnomaly persiste automáticamente:
 - **Eventos recibidos** en la tabla `auth_events` (BD `AUTH_EVENTS_DB_URL`) incluyendo `received_at`, `processed_at` y `processing_time_ms`.
 - **Anomalías notificadas** en `auth_anomalies` (BD `AUTH_ANOMALIES_DB_URL`) junto con el resultado del intento de notificación (`notification_success` y `notification_detail`).
 
-Estas tablas permiten auditar el SLA de 2 segundos. Ejemplo usando SQLite:
+Estas tablas permiten auditar el SLA de 2 segundos. Ejemplo usando MySQL:
 
 ```bash
-sqlite3 auth_anomaly_data/auth_events.db \\
-  'SELECT COUNT(*), AVG(processing_time_ms) FROM auth_events WHERE anomaly_count > 0;'
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
+  -e "SELECT COUNT(*), AVG(processing_time_ms) FROM auth_events WHERE anomaly_count > 0;"
 ```
 
 O para revisar las anomalías detectadas:
 
 ```bash
-sqlite3 auth_anomaly_data/auth_anomalies.db \\
-  'SELECT user, rule, latency_ms, notification_success FROM auth_anomalies ORDER BY detected_at DESC LIMIT 10;'
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
+  -e "SELECT user, rule, latency_ms, notification_success FROM auth_anomalies ORDER BY detected_at DESC LIMIT 10;"
 ```
 
 Con esto puedes demostrar que cada detección tardó < 2000 ms y que la notificación fue enviada exitosamente.
