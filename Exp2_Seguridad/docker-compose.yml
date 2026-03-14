@@ -30,3 +30,10 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  reservas:
+    build:
+      context: ./Reservas
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
