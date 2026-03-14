@@ -198,6 +198,18 @@ SELECT user, rule, severity, latency_ms, simulation_uuid, detected_at
 FROM auth_anomaly_anomalies
 ORDER BY detected_at DESC
 LIMIT 10;
+
+-- Bloqueos emitidos (auth_anomaly_anomalies)
+SELECT user, rule, severity, reason, simulation_uuid, detected_at, notification_success, notification_detail
+FROM auth_anomaly_anomalies
+ORDER BY detected_at DESC
+LIMIT 10;
+
+-- Conteo de bloqueos por simulación (auth_anomaly_anomalies)
+SELECT simulation_uuid, COUNT(*) AS total_blocks
+FROM auth_anomaly_anomalies
+GROUP BY simulation_uuid
+ORDER BY simulation_uuid;
 ```
 
 ### 3. MySQL - Auth Service (auth_audit)
