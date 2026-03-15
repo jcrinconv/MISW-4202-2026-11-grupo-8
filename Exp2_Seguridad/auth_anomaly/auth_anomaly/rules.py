@@ -121,31 +121,46 @@ class MultiIpBruteforceRule(BaseRule):
         self.severity = "critical"
 
     async def evaluate(self, event: AuthEvent, history: UserHistory) -> Optional[AnomalyDecision]:
-        ip = (event.metadata or {}).get("ip")
-        if not ip:
-            return None
-        if event.status not in {"FAILED", "DENIED", "INVALID", "UNAUTHORIZED"}:
+        metadata = event.metadata or {}
+        geo = metadata.get("geo")
+        if not geo:
             return None
 
         now = datetime.now(timezone.utc)
         events = history.recent(self.window_seconds, now)
-        ips = [item.event.metadata.get("ip") for item in events if item.event.metadata and item.event.metadata.get("ip")]
-        unique_ips = len(set(ips))
-        if unique_ips < self.unique_threshold:
+        matching = [
+            item
+            for item in events
+            if item.event.activity == event.activity
+            and item.event.metadata
+            and item.event.metadata.get("geo")
+        ]
+        if len(matching) < self.unique_threshold:
             return None
 
+        recent_sequence = matching[-self.unique_threshold :]
+        geos = [str(item.event.metadata.get("geo")) for item in recent_sequence]
+        if len(set(geos)) < self.unique_threshold:
+            return None
+
+        ips = [
+            str(item.event.metadata.get("ip"))
+            for item in recent_sequence
+            if item.event.metadata.get("ip")
+        ]
         counts = Counter(ips)
-        top_ip = counts.most_common(1)[0][0]
+        top_ip = counts.most_common(1)[0][0] if counts else "unknown"
         latency = int((now - event.occurred_at).total_seconds() * 1000)
         return self._decision(
             event=event,
             reason=(
-                f"{unique_ips} source IPs failed for user within {self.window_seconds}s."
+                f"{self.unique_threshold} consecutive {event.activity} requests in {self.window_seconds}s"
+                f" from different countries: {' -> '.join(geos)}."
                 f" Most active IP: {top_ip}"
             ),
             detected_at=now,
             latency_ms=max(latency, 0),
-            history=events,
+            history=recent_sequence,
         )
 
 
@@ -154,7 +169,7 @@ class TokenReplayRule(BaseRule):
 
     def __init__(self, *, ttl_seconds: int) -> None:
         self.ttl_seconds = ttl_seconds
-        self._token_usage: Dict[str, HistoryEvent] = {}
+        self._token_usage: Dict[tuple[str, str], HistoryEvent] = {}
         self._lock = asyncio.Lock()
         self.window_seconds = ttl_seconds
         self.severity = "critical"
@@ -166,9 +181,10 @@ class TokenReplayRule(BaseRule):
 
         now = datetime.now(timezone.utc)
         await self._purge(now)
+        token_key = (event.simulation_uuid or "__default__", token)
 
         async with self._lock:
-            previous = self._token_usage.get(token)
+            previous = self._token_usage.get(token_key)
             latency = int((now - event.occurred_at).total_seconds() * 1000)
             if previous and previous.event.user != event.user:
                 reason = (
@@ -181,15 +197,19 @@ class TokenReplayRule(BaseRule):
                     latency_ms=max(latency, 0),
                     history=[previous, HistoryEvent(event=event, recorded_at=now)],
                 )
-                self._token_usage[token] = HistoryEvent(event=event, recorded_at=now)
+                self._token_usage[token_key] = HistoryEvent(event=event, recorded_at=now)
                 return decision
 
-            self._token_usage[token] = HistoryEvent(event=event, recorded_at=now)
+            self._token_usage[token_key] = HistoryEvent(event=event, recorded_at=now)
             return None
 
     async def _purge(self, now: datetime) -> None:
         async with self._lock:
-            expired = [token for token, info in self._token_usage.items() if (now - info.recorded_at).total_seconds() > self.ttl_seconds]
+            expired = [
+                token_key
+                for token_key, info in self._token_usage.items()
+                if (now - info.recorded_at).total_seconds() > self.ttl_seconds
+            ]
             for token in expired:
                 del self._token_usage[token]
 

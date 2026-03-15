@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from typing import Optional, Tuple
+from urllib.parse import quote_plus
 
 
 def _bool(value: Optional[str], *, default: bool = True) -> bool:
@@ -26,6 +27,15 @@ def _csv(value: Optional[str], *, default: str, transform) -> Tuple[str, ...]:
     return tuple(transform(item) for item in parts)
 
 
+def _build_mysql_url() -> str:
+    user = os.getenv("AUTH_DB_USER", "audit_user")
+    password = quote_plus(os.getenv("AUTH_DB_PASSWORD", "secure_audit_pass_2024"))
+    host = os.getenv("AUTH_DB_HOST", "mysql")
+    port = os.getenv("AUTH_DB_PORT", "3306")
+    database = os.getenv("AUTH_DB_NAME", "security_audit")
+    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
+
+
 @dataclass(slots=True)
 class Settings:
     """Strongly typed configuration surface."""
@@ -34,15 +44,15 @@ class Settings:
     block_user_endpoint: str = os.getenv("AUTH_BLOCK_ENDPOINT", "/block-user")
     notify_enabled: bool = _bool(os.getenv("AUTH_NOTIFY_ENABLED"), default=True)
     data_dir: str = _resolve_data_dir()
-    events_db_url: str = os.getenv("AUTH_EVENTS_DB_URL") or f"sqlite:///{os.path.join(_resolve_data_dir(), 'auth_events.db')}"
-    anomalies_db_url: str = os.getenv("AUTH_ANOMALIES_DB_URL") or f"sqlite:///{os.path.join(_resolve_data_dir(), 'auth_anomalies.db')}"
+    events_db_url: str = os.getenv("AUTH_EVENTS_DB_URL") or _build_mysql_url()
+    anomalies_db_url: str = os.getenv("AUTH_ANOMALIES_DB_URL") or _build_mysql_url()
     create_schema_on_startup: bool = _bool(os.getenv("AUTH_CREATE_SCHEMA_ON_STARTUP"), default=True)
 
     # Rule tuning
     failure_threshold: int = int(os.getenv("AUTH_FAILURE_THRESHOLD", "3"))
     failure_window_seconds: int = int(os.getenv("AUTH_FAILURE_WINDOW_SECONDS", "60"))
-    multi_ip_threshold: int = int(os.getenv("AUTH_MULTI_IP_THRESHOLD", "3"))
-    multi_ip_window_seconds: int = int(os.getenv("AUTH_MULTI_IP_WINDOW_SECONDS", "90"))
+    multi_ip_threshold: int = int(os.getenv("AUTH_MULTI_IP_THRESHOLD", "2"))
+    multi_ip_window_seconds: int = int(os.getenv("AUTH_MULTI_IP_WINDOW_SECONDS", "60"))
     token_replay_ttl_seconds: int = int(os.getenv("AUTH_TOKEN_REPLAY_TTL_SECONDS", "180"))
     ratelimit_threshold: int = int(os.getenv("AUTH_RATELIMIT_THRESHOLD", "30"))
     ratelimit_window_seconds: int = int(os.getenv("AUTH_RATELIMIT_WINDOW_SECONDS", "60"))

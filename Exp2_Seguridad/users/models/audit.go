@@ -11,6 +11,7 @@ type AuditEvent struct {
 	EventType        string
 	Status           string
 	ErrorMessage     string
+	DetailJSON       string
 	CreatedAt        time.Time
 }
 

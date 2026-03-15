@@ -105,6 +105,19 @@ Cada simulación ejecuta 5 escenarios diferentes:
 | **geo_anomaly** | Login desde múltiples ubicaciones geográficas | Detección de anomalía geográfica |
 | **token_replay** | (Si aplica) Reutilización de tokens | Detección de replay attack |
 
+## Casos que detecta actualmente `Auth_Anomaly`
+
+El microservicio `Auth_Anomaly` consume únicamente eventos publicados por `auth` en Redis y reenviados por `auth-queue` al endpoint `POST /auth-event`.
+
+### Reglas activas
+
+| Regla | Qué evalúa | Umbral por defecto | Fuente de eventos |
+|-------|------------|--------------------|-------------------|
+| **repeated_failures** | Fallos repetidos para la misma actividad (`login`, `validate`) | 3 fallos en 60s | `auth` |
+| **multi_ip_bruteforce** | 2 requests consecutivos de la misma actividad, misma simulación y países diferentes | 2 eventos en 60s | `auth` |
+| **rate_limit** | Alta frecuencia de eventos exitosos para actividades configuradas | 30 eventos `validate` exitosos en 60s | `auth` |
+| **token_replay** | Reutilización del mismo token por usuarios distintos | TTL 180s | `auth` |
+
 ### Obtener los UUIDs de Simulación
 
 Las simulaciones se ejecutan en background. Para obtener los `simulation_uuid` generados, consulta la base de datos:
@@ -126,141 +139,202 @@ docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 s
 
 **Consultas útiles:**
 
-```sql
--- Resumen por simulación y tipo de simulación (processor_type)
-SELECT 
-    simulation_uuid,
-    processor_type AS simulation_type,
-    CASE
-        WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
-        ELSE 'running'
-    END AS simulation_status,
-    MIN(created_at) AS started_at,
-    MAX(created_at) AS ended_at,
-    COUNT(*) AS total_events,
-    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success,
-    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
-    SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked
-FROM audit_events
-WHERE simulation_uuid IS NOT NULL
-GROUP BY simulation_uuid, processor_type
-ORDER BY started_at DESC;
+- **Resumen por simulación**
+  - Muestra el estado general de cada simulación y cuántos eventos terminaron en `success`, `error` o `blocked`.
 
--- ECASE
-        WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
-        ELSE 'running'
-    END AS simulation_status,
-    ventos agrupados por simulación y tipo de simulación
-SELECT 
-    simulation_uuid,
-    processor_type AS simulation_type,
-    event_type,
-    status,
-    COUNT(*) AS total
-FROM audit_events
-WHERsimulation_status,
-    E simulation_uuid IS NOT NULL
-GROUP BY simulation_uuid, processor_type, event_type, status
-ORDER BY simulation_uuid, processor_type;
+  ```sql
+  SELECT 
+      simulation_uuid,
+      processor_type AS simulation_type,
+      CASE
+          WHEN SUM(CASE WHEN simulation_status = 'finished' THEN 1 ELSE 0 END) > 0 THEN 'finished'
+          ELSE 'running'
+      END AS simulation_status,
+      MIN(created_at) AS started_at,
+      MAX(created_at) AS ended_at,
+      COUNT(*) AS total_events,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
+      SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked
+  FROM audit_events
+  WHERE simulation_uuid IS NOT NULL
+  GROUP BY simulation_uuid, processor_type
+  ORDER BY started_at DESC;
+  ```
 
--- Timeline de todos los eventos (últimos 50) con tipo de simulación
-SELECT 
-    simulation_uuid,
-    processor_type AS simulation_type,
-    created_at,
-    user_id,
-    event_type,
-    status
-FROM audit_events
-WHERE simulation_uuid IS NOT NULL
-ORDER BY created_at DESC
-LIMIT 50;
-```
+- **Distribución de eventos por simulación**
+  - Sirve para ver qué `event_type` y qué `status` se registraron dentro de cada simulación.
 
-### 2. SQLite - Auth Service
+  ```sql
+  SELECT 
+      simulation_uuid,
+      processor_type AS simulation_type,
+      event_type,
+      status,
+      COUNT(*) AS total
+  FROM audit_events
+  WHERE simulation_uuid IS NOT NULL
+  GROUP BY simulation_uuid, processor_type, event_type, status
+  ORDER BY simulation_uuid, processor_type, event_type, status;
+  ```
+
+- **Timeline reciente**
+  - Lista los últimos eventos para seguir el orden en que avanzó la trazabilidad.
+
+  ```sql
+  SELECT 
+      simulation_uuid,
+      processor_type AS simulation_type,
+      simulation_status,
+      created_at,
+      user_id,
+      event_type,
+      status
+  FROM audit_events
+  WHERE simulation_uuid IS NOT NULL
+  ORDER BY created_at DESC
+  LIMIT 50;
+  ```
+
+### 2. MySQL - Auth Anomaly (auth_anomaly_events y auth_anomaly_anomalies)
 
 ```bash
-# Acceder al contenedor de auth
-docker exec -it exp2_seguridad-auth-1 sqlite3 auth.db
+# Conectar a MySQL
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit
 ```
 
 **Consultas útiles:**
 
-```sql
--- Ver eventos de autenticación de una simulación
-SELECT * FROM auth_audit 
-WHERE simulation_uuid = 'TU-UUID-AQUI'
-ORDER BY occurred_at;
+- **Eventos procesados por el detector**
+  - Permite revisar qué eventos recibió `auth-anomaly` y cuánto tardó en procesarlos.
 
--- Ver intentos de login fallidos
-SELECT user, activity, status, detail, simulation_uuid, occurred_at
-FROM auth_audit
-WHERE status = 'FAILED' AND activity = 'login'
-ORDER BY occurred_at DESC;
+  ```sql
+  SELECT user, activity, status, simulation_uuid, processing_time_ms, anomaly_count, received_at
+  FROM auth_anomaly_events
+  ORDER BY received_at DESC
+  LIMIT 10;
+  ```
 
--- Ver usuarios bloqueados
-SELECT user, activity, status, detail, simulation_uuid, occurred_at
-FROM auth_audit
-WHERE activity = 'block-user'
-ORDER BY occurred_at DESC;
-```
+- **Anomalías detectadas**
+  - Muestra las decisiones del motor de reglas y la latencia con la que fueron detectadas.
 
-### 3. SQLite - Reservas Service
+  ```sql
+  SELECT user, activity, rule, severity, reason, simulation_uuid, latency_ms, detected_at
+  FROM auth_anomaly_anomalies
+  ORDER BY detected_at DESC
+  LIMIT 10;
+  ```
+
+- **Bloqueos/notificaciones emitidas**
+  - Ayuda a confirmar si una anomalía terminó en una notificación exitosa hacia `auth`.
+
+  ```sql
+  SELECT user, activity, rule, severity, simulation_uuid, detected_at, notification_success, notification_detail
+  FROM auth_anomaly_anomalies
+  WHERE notification_success = 1
+  ORDER BY detected_at DESC
+  LIMIT 10;
+  ```
+
+### 3. MySQL - Auth Service (auth_audit)
 
 ```bash
-# Acceder al contenedor de reservas
-docker exec -it exp2_seguridad-reservas-1 sqlite3 reservas.db
+# Conectar a MySQL
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit
 ```
 
 **Consultas útiles:**
 
-```sql
--- Ver reservas de una simulación
-SELECT id, method, path, simulation_uuid, received_at
-FROM reserva_events
-WHERE simulation_uuid = 'TU-UUID-AQUI'
-ORDER BY received_at;
+- **Eventos de autenticación de una simulación**
+  - Sirve para seguir el flujo de `login`, `validate`, `block-user` y `unblock-user` para un `simulation_uuid` específico.
 
--- Contar requests por simulación
-SELECT simulation_uuid, COUNT(*) as total_requests
-FROM reserva_events
-GROUP BY simulation_uuid;
-```
+  ```sql
+  SELECT user, activity, status, detail, auth_id, simulation_uuid, occurred_at
+  FROM auth_audit 
+  WHERE simulation_uuid = 'TU-UUID-AQUI'
+  ORDER BY occurred_at;
+  ```
 
-### 4. SQLite - Auth Anomaly Service
+- **Intentos de login fallidos**
+  - Muestra credenciales inválidas o solicitudes incompletas registradas por el servicio de autenticación.
 
-```bash
-# Acceder al contenedor de auth-anomaly
-docker exec -it exp2_seguridad-auth-anomaly-1 sh
+  ```sql
+  SELECT user, activity, status, detail, simulation_uuid, occurred_at
+  FROM auth_audit
+  WHERE activity = 'login' AND status = 'FAILED'
+  ORDER BY occurred_at DESC;
+  ```
 
-# Eventos procesados
-sqlite3 /data/events.db
+- **Bloqueos ejecutados sobre usuarios**
+  - Permite verificar cuándo `auth` recibió y aplicó un bloqueo a un usuario.
 
-# Anomalías detectadas
-sqlite3 /data/anomalies.db
-```
+  ```sql
+  SELECT user, activity, status, detail, simulation_uuid, occurred_at
+  FROM auth_audit
+  WHERE activity = 'block-user'
+  ORDER BY occurred_at DESC;
+  ```
 
-**Consultas útiles:**
+**Respuesta cuando un usuario está bloqueado:**
 
-```sql
--- En events.db: Ver eventos procesados de una simulación
-SELECT user, activity, status, simulation_uuid, anomaly_count, occurred_at
-FROM auth_events
-WHERE simulation_uuid = 'TU-UUID-AQUI'
-ORDER BY occurred_at;
+- `POST /login` → `403`
+  ```json
+  {"message": "Usuario bloqueado", "reason": "<blocked_reason>"}
+  ```
+- `POST /validate` → `403`
+  ```json
+  {"message": "Usuario bloqueado", "valid": false, "reason": "blocked_user"}
+  ```
 
--- En anomalies.db: Ver anomalías detectadas
-SELECT user, activity, rule, severity, reason, simulation_uuid, detected_at
-FROM auth_anomalies
-WHERE simulation_uuid = 'TU-UUID-AQUI'
-ORDER BY detected_at;
+### 4. SQLite - Reservas Service
 
--- Ver todas las anomalías con bloqueos
-SELECT user, rule, severity, reason, notification_success, simulation_uuid
-FROM auth_anomalies
-WHERE notification_success = 1
-ORDER BY detected_at DESC;
-```
+ ```bash
+ # La imagen no incluye el binario sqlite3; usa el intérprete de Python
+ docker exec -it exp2_seguridad-reservas-1 python
+ ```
+
+ Dentro del intérprete puedes abrir la base y ejecutar consultas sin problemas de comillas de PowerShell:
+
+Recomendación: Una vez dentro del contenedor, ejecutar 1x1 las siguientes líneas. Luego ajustar las consultas de SQL acorde a lo que se quiera validar.
+
+ ```python
+ import sqlite3
+ conn = sqlite3.connect("reservas.db")
+ cursor = conn.cursor()
+ cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;").fetchall()
+ ```
+
+ **Consultas útiles:**
+
+- **Reservas recibidas por simulación**
+  - Muestra cada request persistida por el servicio `reservas` con su método, ruta y momento de recepción.
+
+  ```sql
+  SELECT id, method, path, simulation_uuid, received_at
+  FROM reserva_events
+  WHERE simulation_uuid = 'TU-UUID-AQUI'
+  ORDER BY received_at;
+  ```
+
+- **Volumen de requests por simulación**
+  - Resume cuántas llamadas recibió `reservas` para cada simulación.
+
+  ```sql
+  SELECT simulation_uuid, COUNT(*) AS total_requests
+  FROM reserva_events
+  GROUP BY simulation_uuid
+  ORDER BY simulation_uuid;
+  ```
+
+  En el intérprete de Python:
+
+  ```python
+  cursor.execute("SELECT simulation_uuid, COUNT(*) AS total_requests FROM reserva_events GROUP BY simulation_uuid ORDER BY simulation_uuid;").fetchall()
+  ```
+
+  ```bash
+  docker exec -it exp2_seguridad-reservas-1 python -c "import sqlite3; conn = sqlite3.connect('reservas.db'); print(conn.execute('SELECT simulation_uuid, COUNT(*) AS total_requests FROM reserva_events GROUP BY simulation_uuid ORDER BY simulation_uuid;').fetchall())"
+  ```
 
 ## Trazabilidad Completa: De Simulación a Bloqueo
 
@@ -273,14 +347,14 @@ Para rastrear el flujo completo de una simulación hasta un bloqueo:
 curl -X POST http://localhost:8081/trigger
 ```
 
-### Paso 2: Esperar procesamiento y obtener UUIDs (30-60 segundos)
+### Paso 2: Esperar procesamiento y obtener UUIDs (120 segundos)
 
 ```bash
-sleep 60
+sleep 120
 
 # Obtener los UUIDs de las simulaciones recientes
 docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
-  -e "SELECT DISTINCT simulation_uuid FROM audit_events ORDER BY created_at DESC LIMIT 5;"
+  -e "SELECT simulation_uuid, MAX(created_at) AS last_seen FROM audit_events WHERE simulation_uuid IS NOT NULL GROUP BY simulation_uuid ORDER BY last_seen DESC LIMIT 5;"
 
 # Guardar un UUID para consultas (reemplazar con uno de los obtenidos)
 SIMULATION_UUID="tu-uuid-aqui"
@@ -293,21 +367,21 @@ SIMULATION_UUID="tu-uuid-aqui"
 docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
   -e "SELECT created_at, user_id, processor_type, event_type, status FROM audit_events WHERE simulation_uuid='$SIMULATION_UUID' ORDER BY created_at;"
 
-# 2. Eventos en auth (SQLite)
-docker exec -it exp2_seguridad-auth-1 sqlite3 auth.db \
-  "SELECT occurred_at, user, activity, status, detail FROM auth_audit WHERE simulation_uuid='$SIMULATION_UUID' ORDER BY occurred_at;"
+# 2. Eventos en auth (MySQL)
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
+  -e "SELECT occurred_at, user, activity, status, detail FROM auth_audit WHERE simulation_uuid='$SIMULATION_UUID' ORDER BY occurred_at;"
 
-# 3. Anomalías detectadas (SQLite)
-docker exec -it exp2_seguridad-auth-anomaly-1 sqlite3 /data/anomalies.db \
-  "SELECT detected_at, user, rule, severity, reason, notification_success FROM auth_anomalies WHERE simulation_uuid='$SIMULATION_UUID' ORDER BY detected_at;"
+# 3. Anomalías detectadas (MySQL)
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
+  -e "SELECT detected_at, user, rule, severity, reason, notification_success FROM auth_anomaly_anomalies WHERE simulation_uuid='$SIMULATION_UUID' ORDER BY detected_at;"
 ```
 
 ### Paso 4: Verificar bloqueos
 
 ```bash
 # Ver usuarios bloqueados en esta simulación
-docker exec -it exp2_seguridad-auth-1 sqlite3 auth.db \
-  "SELECT user, detail, occurred_at FROM auth_audit WHERE simulation_uuid='$SIMULATION_UUID' AND activity='block-user';"
+docker exec -it security-audit-db mysql -u audit_user -psecure_audit_pass_2024 security_audit \
+  -e "SELECT user, detail, occurred_at FROM auth_audit WHERE simulation_uuid='$SIMULATION_UUID' AND activity='block-user' ORDER BY occurred_at;"
 ```
 
 ## Flujo de Datos con simulation_uuid
@@ -319,24 +393,24 @@ docker exec -it exp2_seguridad-auth-1 sqlite3 auth.db \
 │                                                                              │
 │  1. users genera simulation_uuid (UUIDv4)                                    │
 │     └─▶ Persiste en MySQL: audit_events.simulation_uuid                      │
-│                                                                              │
-│  2. users → api-gateway → auth (login)                                       │
-│     └─▶ metadata.simulation_uuid en body JSON                                │
-│     └─▶ Persiste en SQLite: auth_audit.simulation_uuid                       │
-│     └─▶ Emite a Redis Stream con simulation_uuid                             │
-│                                                                              │
-│  3. auth-queue → auth-anomaly                                                │
-│     └─▶ Reenvía payload completo con simulation_uuid                         │
-│     └─▶ Persiste en SQLite: auth_events.simulation_uuid                      │
-│     └─▶ Si anomalía: auth_anomalies.simulation_uuid                          │
-│                                                                              │
-│  4. auth-anomaly → auth (bloqueo)                                            │
-│     └─▶ Notifica bloqueo con simulation_uuid                                 │
-│     └─▶ Persiste en auth_audit con simulation_uuid                           │
-│                                                                              │
-│  5. users → api-gateway → reservas                                           │
-│     └─▶ Header X-Simulation-UUID + body.simulation_uuid                      │
-│     └─▶ Persiste en SQLite: reserva_events.simulation_uuid                   │
+ │                                                                              │
+ │  2. users → api-gateway → auth (login)                                       │
+ │     └─▶ metadata.simulation_uuid en body JSON                                │
+ │     └─▶ Persiste en MySQL: auth_audit.simulation_uuid                        │
+ │     └─▶ Emite a Redis Stream con simulation_uuid                             │
+ │                                                                              │
+ │  3. auth-queue → auth-anomaly                                                │
+ │     └─▶ Reenvía payload completo con simulation_uuid                         │
+ │     └─▶ Persiste en MySQL: auth_anomaly_events.simulation_uuid               │
+ │     └─▶ Si anomalía: auth_anomaly_anomalies.simulation_uuid                  │
+ │                                                                              │
+ │  4. auth-anomaly → auth (bloqueo)                                            │
+ │     └─▶ Notifica bloqueo con simulation_uuid                                 │
+ │     └─▶ Persiste en MySQL: auth_audit.simulation_uuid                        │
+ │                                                                              │
+ │  5. users → api-gateway → reservas                                           │
+ │     └─▶ Header X-Simulation-UUID + body.simulation_uuid                      │
+ │     └─▶ Persiste en SQLite: reserva_events.simulation_uuid                   │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -363,31 +437,3 @@ docker-compose down -v
 | MySQL | 3306 | Base de datos de auditoría |
 | Redis | 6379 | Message broker |
 
-## Troubleshooting
-
-### Servicios no inician
-```bash
-# Ver logs detallados
-docker-compose logs --tail=100
-
-# Reiniciar un servicio específico
-docker-compose restart auth-anomaly
-```
-
-### Base de datos no accesible
-```bash
-# Verificar que MySQL esté healthy
-docker-compose ps mysql
-
-# Verificar conexión
-docker exec -it security-audit-db mysqladmin ping -u root -prootpass123
-```
-
-### Eventos no llegan a auth-anomaly
-```bash
-# Verificar Redis Stream
-docker exec -it exp2_seguridad-redis-1 redis-cli XLEN reports
-
-# Ver mensajes pendientes
-docker exec -it exp2_seguridad-redis-1 redis-cli XRANGE reports - + COUNT 10
-```

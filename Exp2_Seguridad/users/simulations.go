@@ -44,15 +44,14 @@ func getProcessor(index int) (Processor, bool) {
 
 // GenerateCustomSimulation ejecuta una simulación para un usuario específico
 func GenerateCustomSimulation(userIndex int) {
-	simulationID := uuid.New().String()
 	ctx := context.Background()
 	user := models.GetUserByIndex(userIndex)
 	idx := generateRandomIndexEvent()
 	processorName := processorNames[idx]
 
-	log.Printf("[%s] Usuario %s ejecutando processor %s", simulationID, user.User, processorName)
-
 	if proc, ok := getProcessor(idx); ok {
+		simulationID := uuid.New().String()
+		log.Printf("[%s] Usuario %s ejecutando processor %s", simulationID, user.User, processorName)
 		if err := proc.Proccess(ctx, simulationID, user); err != nil {
 			log.Printf("[%s] Usuario %s - processor %s error: %v", simulationID, user.User, processorName, err)
 		} else {
@@ -62,7 +61,7 @@ func GenerateCustomSimulation(userIndex int) {
 			log.Printf("[%s] Error actualizando estado de simulación: %v", simulationID, err)
 		}
 	} else {
-		log.Printf("[%s] Usuario %s - no hay processor para el índice %d", simulationID, user.User, idx)
+		log.Printf("Usuario %s - no hay processor para el índice %d", user.User, idx)
 	}
 }
 

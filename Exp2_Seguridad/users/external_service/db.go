@@ -59,6 +59,7 @@ func InitAuditTable() error {
 		event_type VARCHAR(50) NOT NULL,
 		status VARCHAR(20) NOT NULL,
 		error_message TEXT,
+		detail_json TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		INDEX idx_simulation_id (simulation_id),
 		INDEX idx_simulation_uuid (simulation_uuid),
@@ -76,15 +77,21 @@ func InitAuditTable() error {
 	// Migración: agregar columna simulation_uuid si no existe (para tablas creadas antes del cambio)
 	addColumnSQL := `
 	ALTER TABLE audit_events 
-	ADD COLUMN IF NOT EXISTS simulation_uuid VARCHAR(36) NULL AFTER simulation_id;
+	ADD COLUMN simulation_uuid VARCHAR(36) NULL AFTER simulation_id;
 	`
 	_, _ = db.Exec(addColumnSQL) // Ignorar error si la columna ya existe
 
 	addStatusColumnSQL := `
 	ALTER TABLE audit_events 
-	ADD COLUMN IF NOT EXISTS simulation_status VARCHAR(20) NULL AFTER simulation_uuid;
+	ADD COLUMN simulation_status VARCHAR(20) NULL AFTER simulation_uuid;
 	`
 	_, _ = db.Exec(addStatusColumnSQL) // Ignorar error si la columna ya existe
+
+	addDetailColumnSQL := `
+	ALTER TABLE audit_events 
+	ADD COLUMN detail_json TEXT NULL AFTER error_message;
+	`
+	_, _ = db.Exec(addDetailColumnSQL) // Ignorar error si la columna ya existe
 
 	// Agregar índice si no existe
 	addIndexSQL := `

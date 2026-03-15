@@ -41,6 +41,7 @@ class AuthNotifier:
             "severity": decision.severity,
             "detected_at": decision.detected_at.isoformat(),
             "metadata": decision.metadata,
+            "simulation_uuid": decision.simulation_uuid or decision.metadata.get("simulation_uuid"),
         }
 
         try:

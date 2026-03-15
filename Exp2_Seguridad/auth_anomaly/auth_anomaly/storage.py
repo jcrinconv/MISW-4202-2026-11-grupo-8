@@ -7,22 +7,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, List, Tuple
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine
+from sqlalchemy.dialects.mysql import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .models import AnomalyDecision, AuthEvent, NotificationResult, ProcessedEvent
 
 
-class _EventsBase(DeclarativeBase):
+class Base(DeclarativeBase):
     pass
 
 
-class _AnomaliesBase(DeclarativeBase):
-    pass
-
-
-class AuthEventRecord(_EventsBase):
-    __tablename__ = "auth_events"
+class AuthEventRecord(Base):
+    __tablename__ = "auth_anomaly_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user: Mapped[str] = mapped_column(String(128), index=True)
@@ -41,8 +38,8 @@ class AuthEventRecord(_EventsBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
-class AnomalyRecord(_AnomaliesBase):
-    __tablename__ = "auth_anomalies"
+class AnomalyRecord(Base):
+    __tablename__ = "auth_anomaly_anomalies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user: Mapped[str] = mapped_column(String(128), index=True)
@@ -64,7 +61,6 @@ class AnomalyRecord(_AnomaliesBase):
 @dataclass
 class _Database:
     url: str
-    base: type[DeclarativeBase]
 
     def __post_init__(self) -> None:
         connect_args = {"check_same_thread": False} if self.url.startswith("sqlite") else {}
@@ -72,7 +68,7 @@ class _Database:
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
     def create_schema(self) -> None:
-        self.base.metadata.create_all(self.engine)
+        Base.metadata.create_all(self.engine)
 
     def session(self):  # type: ignore[override]
         return self.session_factory()
@@ -82,8 +78,8 @@ class Storage:
     """Coordinates persistence in the events and anomalies databases."""
 
     def __init__(self, *, events_url: str, anomalies_url: str, create_schema: bool = True) -> None:
-        self._events_db = _Database(events_url, _EventsBase)
-        self._anomalies_db = _Database(anomalies_url, _AnomaliesBase)
+        self._events_db = _Database(events_url)
+        self._anomalies_db = _Database(anomalies_url)
         self._create_schema = create_schema
 
     async def startup(self) -> None:

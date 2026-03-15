@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,6 +22,35 @@ type loginRequest struct {
 type loginResponse struct {
 	Message string `json:"message"`
 	Token   string `json:"token"`
+	Reason  string `json:"reason"`
+}
+
+type blockedResponse struct {
+	Message string `json:"message"`
+	Reason  string `json:"reason"`
+}
+
+var ErrUserBlocked = errors.New("user blocked")
+
+func IsBlockedResponse(statusCode int, body []byte) (bool, string) {
+	if statusCode != http.StatusForbidden {
+		return false, ""
+	}
+
+	var resp blockedResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return false, ""
+	}
+
+	message := strings.TrimSpace(resp.Message)
+	reason := strings.TrimSpace(resp.Reason)
+	if reason == "blocked_user" || strings.Contains(strings.ToLower(message), "bloqueado") {
+		if message == "" {
+			message = "Usuario bloqueado"
+		}
+		return true, message
+	}
+	return false, ""
 }
 
 func Login(ctx context.Context, user models.User, metadata models.Metadata) (string, error) {
@@ -58,6 +88,13 @@ func Login(ctx context.Context, user models.User, metadata models.Metadata) (str
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		if resp.StatusCode == http.StatusForbidden && (loginResp.Reason == "blocked_user" || strings.Contains(strings.ToLower(loginResp.Message), "bloqueado")) {
+			reason := strings.TrimSpace(loginResp.Message)
+			if reason == "" {
+				reason = "Usuario bloqueado"
+			}
+			return "", fmt.Errorf("%w: %s", ErrUserBlocked, reason)
+		}
 		if loginResp.Message != "" {
 			return "", fmt.Errorf(loginResp.Message)
 		}

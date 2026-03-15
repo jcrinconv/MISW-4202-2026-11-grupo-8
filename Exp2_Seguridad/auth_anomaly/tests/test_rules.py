@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 from auth_anomaly.rules import (
+    MultiIpBruteforceRule,
     RateLimitRule,
     RepeatedFailureRule,
     TokenReplayRule,
@@ -74,6 +75,68 @@ async def test_token_replay_rule_flags_token_used_by_other_user() -> None:
     assert decision is not None
     assert decision.rule == "token_replay"
     assert "bob" in decision.reason
+
+
+@pytest.mark.asyncio
+async def test_token_replay_rule_ignores_same_token_in_different_simulations() -> None:
+    rule = TokenReplayRule(ttl_seconds=300)
+    alice_history = UserHistory()
+    bob_history = UserHistory()
+
+    first_event = AuthEvent(
+        user="alice",
+        activity="validate",
+        status="success",
+        auth_token="jwt-123",
+        simulation_uuid="sim-1",
+        occurred_at=datetime.now(timezone.utc),
+    )
+    alice_history.append(first_event)
+    assert await rule.evaluate(first_event, alice_history) is None
+
+    second_event = AuthEvent(
+        user="bob",
+        activity="validate",
+        status="success",
+        auth_token="jwt-123",
+        simulation_uuid="sim-2",
+        occurred_at=datetime.now(timezone.utc),
+    )
+    bob_history.append(second_event)
+    assert await rule.evaluate(second_event, bob_history) is None
+
+
+@pytest.mark.asyncio
+async def test_multi_ip_rule_detects_two_consecutive_countries_in_same_simulation() -> None:
+    rule = MultiIpBruteforceRule(unique_threshold=2, window_seconds=60)
+    history = UserHistory()
+    base_time = datetime.now(timezone.utc)
+
+    first_event = AuthEvent(
+        user="alice",
+        activity="validate",
+        status="success",
+        simulation_uuid="sim-geo-1",
+        metadata={"ip": "10.0.0.1", "geo": "COLOMBIA", "device_id": "dev-1"},
+        occurred_at=base_time - timedelta(seconds=10),
+    )
+    history.append(first_event, recorded_at=first_event.occurred_at)
+    assert await rule.evaluate(first_event, history) is None
+
+    second_event = AuthEvent(
+        user="alice",
+        activity="validate",
+        status="success",
+        simulation_uuid="sim-geo-1",
+        metadata={"ip": "10.0.0.2", "geo": "ESTADOS UNIDOS", "device_id": "dev-2"},
+        occurred_at=base_time,
+    )
+    history.append(second_event, recorded_at=second_event.occurred_at)
+    decision = await rule.evaluate(second_event, history)
+
+    assert decision is not None
+    assert decision.rule == "multi_ip_bruteforce"
+    assert "COLOMBIA -> ESTADOS UNIDOS" in decision.reason
 
 
 @pytest.mark.asyncio
